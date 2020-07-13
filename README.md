@@ -11,7 +11,7 @@ Welcome to my AI Framework project. I am new to ML/DL and I want to learn step b
 - Layer
   - Dense
 - Activation Function
-  - ReLu
+  - ReLU
   - Logistic
   - Softmax
 - Loss Function
