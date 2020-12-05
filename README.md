@@ -19,8 +19,9 @@ Features:
   - Dense
 - Activation Function
   - ReLU
-  - Logistic
+  - Sigmoid
   - Softmax
+  - tanh
 - Loss Function
   - Quadratic Loss
   - Cross Entropy Loss
