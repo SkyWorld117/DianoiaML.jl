@@ -7,8 +7,14 @@ Welcome to my AI Framework project. I am new to ML/DL and I want to learn step b
 
 
 Current version **0.1.1** 
+
+
 Environment: Python 3.7, NumPy 1.18.5 
-Features:
+
+
+Features: 
+
+
 - Network
   - Sequential
 - Layer
