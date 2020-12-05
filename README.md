@@ -27,7 +27,7 @@ Features:
 Please feel free to leave comments, trouble-shootings or advice (which are very valuable for me). 
 
 ### Update log
-**Update 0.1.1 - 05.12.2020**
+**Update 0.1.1 - 12.05.2020**
 - Add tanh as an activation function
 - Improve the syntax slightly
 - This is the last Python version of this framework. I am re-programming this project in Julia. 
