@@ -28,11 +28,14 @@ Features:
 - Optimizer
   - Gradient Descent
   - Genetic Algorithm (Experimental)
+- Tools
+  - Model Management
 
 Please feel free to leave comments, trouble-shootings or advice (which are very valuable for me). 
 
 ### Update log
 **Update 0.1.1 - 12.05.2020**
 - Add tanh as an activation function
+- Add model management in tools and can save and models
 - Improve the syntax slightly
-- This is the last Python version of this framework. I am re-programming this project in Julia. 
+- This would be the last Python version of this framework. I am re-programming this project in Julia. 
