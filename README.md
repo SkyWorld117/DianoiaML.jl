@@ -36,6 +36,6 @@ Please feel free to leave comments, trouble-shootings or advice (which are very 
 ### Update log
 **Update 0.1.1 - 12.05.2020**
 - Add tanh as an activation function
-- Add model management in tools and can save and models
+- Add model management in tools and can save and load models
 - Improve the syntax slightly
 - This would be the last Python version of this framework. I am re-programming this project in Julia. 
