@@ -6,9 +6,9 @@ Welcome to my AI Framework project. I am new to ML/DL and I want to learn step b
 
 
 
-Current version **0.1.1** 
+Latest stable version **0.2.4** 
 
-Environment: Python 3.7, NumPy 1.18.5 
+Environment: Julia 1.5.3
 
 Features: 
 
@@ -17,6 +17,8 @@ Features:
   - Sequential
 - Layer
   - Dense
+  - Convolutional2D
+  - MaxPooling2D
 - Activation Function
   - ReLU
   - Sigmoid
@@ -25,16 +27,30 @@ Features:
 - Loss Function
   - Quadratic Loss
   - Cross Entropy Loss
+  - Mean Squared Error
 - Optimizer
   - Gradient Descent
-  - Genetic Algorithm (Experimental)
+  - Adam
+  - AdaBelief
 - Tools
   - Model Management
+  - One Hot
+  - Flatten
 
 Please feel free to leave comments, trouble-shootings or advice (which are very valuable for me). 
 
 ### Update log
-**Update 0.1.1 - 12.05.2020**
+**Update 0.2.4 - 01.28.2021**
+- Add Convolutional2D and MaxPooling2D as layers
+- Add Mean Squared Loss as a loss function
+- Add Adam and AdaBelief as optimizers
+- Add One Hot and Flatten as tools
+- Improve the structures
+- The code is now completely in Julia. 
+- Known issues: Convolutional2D requires a lot of RAM and is relatively slow. 
+
+
+**Update 0.1.1 - 05.12.2020**
 - Add tanh as an activation function
 - Add model management in tools and can save and load models
 - Improve the syntax slightly
