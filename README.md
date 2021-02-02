@@ -6,7 +6,7 @@ Welcome to my AI Framework project. I am new to ML/DL and I want to learn step b
 
 
 
-Latest stable version **0.2.4** 
+Latest stable version **0.2.5** 
 
 Environment: Julia 1.5.3
 
@@ -40,6 +40,11 @@ Features:
 Please feel free to leave comments, trouble-shootings or advice (which are very valuable for me). 
 
 ### Update log
+**Update 0.2.5 - 02.02.2021**
+- Greatly imporve the training speed
+- In the example, it is about 20 seconds slower than Keras. 
+
+
 **Update 0.2.4 - 01.28.2021**
 - Add Convolutional2D and MaxPooling2D as layers
 - Add Mean Squared Loss as a loss function
