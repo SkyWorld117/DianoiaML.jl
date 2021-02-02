@@ -42,7 +42,7 @@ Please feel free to leave comments, trouble-shootings or advice (which are very 
 ### Update log
 **Update 0.2.5 - 02.02.2021**
 - Greatly imporve the training speed
-- In the example, it is about 20 seconds slower than Keras. 
+- In the example, it is about 20 seconds slower than Keras (epochs=5, batch_size=128). 
 
 
 **Update 0.2.4 - 01.28.2021**
