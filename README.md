@@ -10,6 +10,8 @@ Latest stable version **0.2.6**
 
 Environment: Julia 1.5.3
 
+Dependency: HDF5 0.15.0
+
 Features: 
 
 
