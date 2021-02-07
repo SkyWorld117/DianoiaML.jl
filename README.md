@@ -47,7 +47,7 @@ Please feel free to leave comments, trouble-shootings or advice (which are very 
 ### Update log
 **Update 0.2.6 - 02.06.2021**
 - Add **Monitor** to show the current loss
-- Known issues: I find out that all my optimizers update once after a batch, that means they work just like **Minibatch Gradient Descent**, so **Adam** and **AdaBelief** are not working properly but like **Minibatch Adam** and **Minibatch AdaBelief**. This slows down the training process. I will try to reconstructe the whole program in the next update. 
+- Known issues: I find out that all my optimizers update once after a batch, that means they work just like **Minibatch Gradient Descent**, so **Adam** and **AdaBelief** are not working properly but like **Minibatch Adam** and **Minibatch AdaBelief**. This slows down the training process. I will try to reconstruct the whole program in the next update. 
 
 **Update 0.2.5 - 02.02.2021**
 - Greatly imporve the training speed
