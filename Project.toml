@@ -1,0 +1,8 @@
+name = "Yisy_AI_Framework"
+uuid = "1833fadb-d4a3-4bdc-92b3-7dbe365d2b7d"
+authors = ["alan "]
+version = "0.3.2"
+
+[deps]
+HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
+LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
