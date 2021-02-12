@@ -47,7 +47,7 @@ module Yisy_AI_Framework
     include("./monitor/absolute.jl")
     using .Absolute
     export Absolute
-    include("./monitor/Classification.jl")
+    include("./monitor/classification.jl")
     using .Classification
     export Classification
 
