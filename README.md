@@ -1,19 +1,14 @@
 # Yisy AI Framework
 
-
-
 Welcome to my AI Framework project. I am new to ML/DL and I want to learn step by step how frameworks like TensorFlow, Keras and PyTorch work, by developing this project. That also means, this framework is not supposed to have a high efficiency like other professional frameworks. All of these are just for learning and fun. 
 
-
-
-Latest stable version **0.2.6** 
+Latest stable version **0.3.2** 
 
 Environment: Julia 1.5.3
 
-Dependency: HDF5 0.15.0
+Dependency: HDF5 0.15.2, LoopVectorization 0.11.2
 
 Features: 
-
 
 - Network
   - Sequential
@@ -34,7 +29,8 @@ Features:
   - Absolute
   - Classification
 - Optimizer
-  - Gradient Descent
+  - Minibatch Gradient Descent
+  - Stochastic Gradient Descent
   - Adam
   - AdaBelief
 - Tools
@@ -53,7 +49,6 @@ Please feel free to leave comments, trouble-shootings or advice (which are very 
 - Greatly imporve the training speed
 - In the example, it is about 20 seconds slower than Keras (epochs=5, batch_size=128). 
 
-
 **Update 0.2.4 - 01.28.2021**
 - Add **Convolutional2D** and **MaxPooling2D** as layers
 - Add **Mean Squared Loss** as a loss function
@@ -62,7 +57,6 @@ Please feel free to leave comments, trouble-shootings or advice (which are very 
 - Improve the structures
 - The code is now completely in Julia. 
 - Known issues: Convolutional2D requires a lot of RAM and is relatively slow. 
-
 
 **Update 0.1.1 - 05.12.2020**
 - Add **tanh** as an activation function
