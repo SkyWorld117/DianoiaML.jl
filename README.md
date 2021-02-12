@@ -7,8 +7,8 @@ Latest stable version **0.3.2**
 Environment: Julia 1.5.3
 
 Dependencies: 
-- [HDF5](https://github.com/JuliaIO/HDF5.jl) 0.15.2
-- [LoopVectorization](https://github.com/chriselrod/LoopVectorization.jl) 0.11.2
+- [HDF5.jl](https://github.com/JuliaIO/HDF5.jl) 0.15.2
+- [LoopVectorization.jl](https://github.com/chriselrod/LoopVectorization.jl) 0.11.2
 
 Features: 
 
