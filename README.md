@@ -2,7 +2,7 @@
 
 Welcome to my AI Framework project. I am new to ML/DL and I want to learn step by step how frameworks like TensorFlow, Keras and PyTorch work, by developing this project. That also means, this framework is not supposed to have a high efficiency like other professional frameworks. All of these are just for learning and fun. 
 
-Latest stable version **0.3.2** 
+Latest stable version **0.3.4** 
 
 Environment: Julia 1.5.3
 
