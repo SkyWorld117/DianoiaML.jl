@@ -190,19 +190,6 @@ module conv2d
         end
     end
 
-    function init_weights(x::Int64, y::Int64, weights::Array{Float32}, weights_prop::Array{Int8}, filters::Array{Float32}, step_x::Int64, step_y::Int64, input2D_size::Tuple{Int64, Int64}, kernel_size::Tuple{Int64, Int64}, unit_size::Tuple{Int64, Int64}, randomization::Bool, conv_num_per_row::Int64, conv_num_per_col::Int64)
-        @avx for i in 0:unit_size[1]-1
-            index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
-            for j in 1:kernel_size[1]
-                for k in 1:kernel_size[2]
-                    weights[x*unit_size[1]+i+1, y*unit_size[2]+index+k] = filters[x+1,y+1,j,k]
-                    weights_prop[x*unit_size[1]+i+1, y*unit_size[2]+index+k] = Int8(1)
-                end
-                index += input2D_size[2]
-            end
-        end
-    end
-
     function save_Conv2D(layer::Conv2D, file::Any, id::Int64)
         write(file, string(id), "Conv2D")
         write(file, string(id)*"input_size", layer.input_size)
