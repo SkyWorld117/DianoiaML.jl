@@ -1,4 +1,4 @@
-module Yisy_AI_Framework
+module YisyAIFramework
     include("./activation_function/relu.jl")
     using .ReLU
     export ReLU
