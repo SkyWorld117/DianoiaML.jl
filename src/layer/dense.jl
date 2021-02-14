@@ -7,10 +7,8 @@ module dense
         save_layer::Any
         load_layer::Any
         activator::Any
-        get_PU::Any
         initializer::Any
-        update_weights::Bool
-        update_biases::Bool
+        updater::Any
 
         input_size::Int64
         layer_size::Int64
@@ -18,8 +16,6 @@ module dense
 
         weights::Array{Float32}
         biases::Array{Float32}
-        weights_prop::Array{Int8}
-        biases_prop::Array{Int8}
 
         Vdw::Array{Float32}
         Sdw::Array{Float32}
@@ -32,7 +28,7 @@ module dense
 
         function Dense(;input_size::Int64, layer_size::Int64, activation_function::Module, randomization::Bool=true, reload::Bool=false)
             if reload
-                return new(save_Dense, load_Dense, activate_Dense, PU_Dense, init_Dense, true, true)
+                return new(save_Dense, load_Dense, activate_Dense, init_Dense, update_Dense)
             end
 
             if randomization
@@ -42,15 +38,18 @@ module dense
                 weights = zeros(Float32, (layer_size, input_size))
                 biases = zeros(Float32, layer_size)
             end
-            weights_prop = ones(Int8, size(weights))
-            biases_prop = ones(Int8, size(biases))
 
             Vdw = zeros(Float32, size(weights))
             Sdw = zeros(Float32, size(weights))
             Vdb = zeros(Float32, size(biases))
             Sdb = zeros(Float32, size(biases))
-            new(save_Dense, load_Dense, activate_Dense, PU_Dense, init_Dense, true, true, input_size, layer_size, activation_function, weights, biases, weights_prop, biases_prop, Vdw, Sdw, Vdb, Sdb)
+            new(save_Dense, load_Dense, activate_Dense, init_Dense, update_Dense, input_size, layer_size, activation_function, weights, biases, Vdw, Sdw, Vdb, Sdb)
         end
+    end
+
+    function init_Dense(layer::Dense, mini_batch::Int64)
+        layer.value = zeros(Float32, (size(layer.weights, 1), mini_batch))
+        layer.propagation_units = zeros(Float32, (size(layer.weights, 2), mini_batch))
     end
 
     function activate_Dense(layer::Dense, input::Array{Float32})
@@ -65,7 +64,8 @@ module dense
         layer.output = layer.activation_function.func(layer.value)
     end
 
-    function PU_Dense(layer::Dense, ∇biases::Array{Float32})
+    function update_Dense(layer::Dense, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters...)
+        ∇biases = layer.activation_function.get_∇biases(layer.value, Next_Layer_propagation_units)
         @avx for x in axes(layer.weights, 2), y in axes(∇biases, 2)
             c = 0.0f0
             for z in axes(layer.weights, 1)
@@ -74,11 +74,71 @@ module dense
             layer.propagation_units[x,y] = c
         end
         # layer.propagation_units = transpose(layer.weights)*∇biases
-    end
 
-    function init_Dense(layer::Dense, mini_batch::Int64)
-        layer.value = zeros(Float32, (size(layer.weights, 1), mini_batch))
-        layer.propagation_units = zeros(Float32, (size(layer.weights, 2), mini_batch))
+        if optimizer=="SGD"
+            @avx for x in axes(∇biases, 1), y in axes(Last_Layer_output, 1)
+                layer.weights[x,y] -= α*∇biases[x,1]*Last_Layer_output[y,1]
+            end
+            # layer.weights -= ∇biases*transpose(Last_Layer_output).*α
+            @avx for i in 1:length(layer.biases)
+                layer.biases[i] -= α*∇biases[i,1]
+            end
+            # layer.biases -= sum(∇biases, dims=2).*α
+
+        elseif optimizer=="Minibatch_GD"
+            @avx for x in axes(∇biases, 1), y in axes(Last_Layer_output, 1)
+                c = 0.0f0
+                for b in axes(∇biases, 2)
+                    c += ∇biases[x,b]*Last_Layer_output[y,b]
+                end
+                layer.weights[x,y] -= c*α
+            end
+            # layer.weights -= ∇biases*transpose(Last_Layer_output).*α
+            @avx for i in 1:length(layer.biases)
+                c = 0.0f0
+                for b in axes(∇biases, 2)
+                    c += ∇biases[i,b]
+                end
+                layer.biases[i] -= c*α
+            end
+            # layer.biases -= sum(∇biases, dims=2).*α
+
+        elseif optimizer=="Adam"
+            t = parameters[1]
+            β₁ = parameters[2]
+            β₂ = parameters[3]
+            ϵ = parameters[4]
+
+            @avx for x in axes(∇biases, 1), y in axes(Last_Layer_output, 1)
+                layer.Vdw[x,y] = layer.Vdw[x,y]*β₁ + ∇biases[x,1]*Last_Layer_output[y,1]*(1-β₁)
+                layer.Sdw[x,y] = layer.Sdw[x,y]*β₂ + (∇biases[x,1]*Last_Layer_output[y,1])^2*(1-β₂)
+                layer.weights[x,y] -= α*(layer.Vdw[x,y]/(1-β₁^t))/(sqrt(layer.Sdw[x,y]/(1-β₂^t))+ϵ)
+            end
+
+            @avx for i in 1:length(layer.biases)
+                layer.Vdb[i] = layer.Vdb[i]*β₁ + ∇biases[i,1]*(1-β₁)
+                layer.Sdb[i] = layer.Sdb[i]*β₂ + ∇biases[i,1]^2*(1-β₂)
+                layer.biases[i] -= α*(layer.Vdb[i]/(1-β₁^t))/(sqrt(layer.Sdb[i]/(1-β₂^t))+ϵ)
+            end
+
+        elseif optimizer=="AdaBelief"
+            t = parameters[1]
+            β₁ = parameters[2]
+            β₂ = parameters[3]
+            ϵ = parameters[4]
+
+            @avx for x in axes(∇biases, 1), y in axes(Last_Layer_output, 1)
+                layer.Vdw[x,y] = layer.Vdw[x,y]*β₁ + ∇biases[x,1]*Last_Layer_output[y,1]*(1-β₁)
+                layer.Sdw[x,y] = layer.Sdw[x,y]*β₂ + (∇biases[x,1]*Last_Layer_output[y,1]-layer.Vdw[x,y])^2*(1-β₂) + ϵ
+                layer.weights[x,y] -= α*(layer.Vdw[x,y]/(1-β₁^t))/(sqrt(layer.Sdw[x,y]/(1-β₂^t))+ϵ)
+            end
+
+            @avx for i in 1:length(layer.biases)
+                layer.Vdb[i] = layer.Vdb[i]*β₁ + ∇biases[i,1]*(1-β₁)
+                layer.Sdb[i] = layer.Sdb[i]*β₂ + (∇biases[i,1]-layer.Vdb[i])^2*(1-β₂)
+                layer.biases[i] -= α*(layer.Vdb[i]/(1-β₁^t))/(sqrt(layer.Sdb[i]/(1-β₂^t))+ϵ)
+            end
+        end
     end
 
     function save_Dense(layer::Dense, file::Any, id::Int64)
@@ -93,8 +153,6 @@ module dense
         layer.biases = read(file, string(id)*"biases")
         layer.input_size = size(layer.weights, 2)
         layer.layer_size = size(layer.weights, 1)
-        layer.weights_prop = ones(Int8, size(layer.weights))
-        layer.biases_prop = ones(Int8, size(layer.biases))
         layer.Vdw = zeros(Float32, size(layer.weights))
         layer.Sdw = zeros(Float32, size(layer.weights))
         layer.Vdb = zeros(Float32, size(layer.biases))

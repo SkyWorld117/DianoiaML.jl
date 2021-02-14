@@ -1,12 +1,12 @@
 module maxpooling2d
+    using LoopVectorization
+
     mutable struct MaxPooling2D
         save_layer::Any
         load_layer::Any
         activator::Any
-        get_PU::Any
         initializer::Any
-        update_weights::Bool
-        update_biases::Bool
+        updater::Any
 
         input_size::Int64
         layer_size::Int64
@@ -25,14 +25,18 @@ module maxpooling2d
 
         function MaxPooling2D(;input_filter::Int64, input_size::Int64, input2D_size::Tuple{Int64, Int64}, kernel_size::Tuple{Int64, Int64}, step_x::Int64=kernel_size[2], step_y::Int64=kernel_size[1], activation_function::Module, reload::Bool=false)
             if reload
-                return new(save_MaxPooling2D, load_MaxPooling2D, activate_MaxPooling2D, PU_MaxPooling2D, init_MaxPooling2D, false, false)
+                return new(save_MaxPooling2D, load_MaxPooling2D, activate_MaxPooling2D, init_MaxPooling2D, update_MaxPooling2D)
             end
 
             conv_num_per_row = (input2D_size[2]-kernel_size[2])÷step_x+1
             conv_num_per_col = (input2D_size[1]-kernel_size[1])÷step_y+1
             unit_size = (conv_num_per_row*conv_num_per_col, input_size÷input_filter)
-            new(save_MaxPooling2D, load_MaxPooling2D, activate_MaxPooling2D, PU_MaxPooling2D, init_MaxPooling2D, false, false, input_size, conv_num_per_row*conv_num_per_col*input_filter, activation_function, unit_size, input2D_size, kernel_size, step_x, step_y)
+            new(save_MaxPooling2D, load_MaxPooling2D, activate_MaxPooling2D, init_MaxPooling2D, update_MaxPooling2D, input_size, conv_num_per_row*conv_num_per_col*input_filter, activation_function, unit_size, input2D_size, kernel_size, step_x, step_y)
         end
+    end
+
+    function init_MaxPooling2D(layer::MaxPooling2D, mini_batch::Int64)
+        # Yes, it's empty :)
     end
 
     function activate_MaxPooling2D(layer::MaxPooling2D, input::Array{Float32})
@@ -50,12 +54,17 @@ module maxpooling2d
         layer.output = layer.activation_function.func(layer.value)
     end
 
+    function update_MaxPooling2D(layer::MaxPooling2D, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters...)
+        ∇biases = layer.activation_function.get_∇biases(layer.value, Next_Layer_propagation_units)
+        PU_MaxPooling2D(layer, ∇biases)
+    end
+
     function PU_MaxPooling2D(layer::MaxPooling2D, ∇biases::Array{Float32})
         batch_size = size(∇biases, 2)
         layer.propagation_units = zeros(Float32, (layer.input_size, batch_size))
         if layer.step_x>=layer.kernel_size[2] && layer.step_y>=layer.kernel_size[1]
-            for b in 1:batch_size
-                Threads.@threads for x in axes(layer.weights, 1)
+            @avx for b in 1:batch_size
+                for x in axes(layer.weights, 1)
                     layer.propagation_units[layer.weights[x,b],b] = ∇biases[x,b]
                 end
             end
@@ -68,12 +77,8 @@ module maxpooling2d
                 end
             end
         end
-        #return propagation_units
     end
 
-    function init_MaxPooling2D(layer::MaxPooling2D, mini_batch::Int64)
-        # Yes, it's empty :)
-    end
 
     function create_value(layer::MaxPooling2D, input::Array{Float32}, b::Int64, i::Int64, conv_num_per_row::Int64, conv_num_per_col::Int64)
         for l in 0:layer.unit_size[1]-1
@@ -89,16 +94,8 @@ module maxpooling2d
                 end
                 index += layer.input2D_size[2]
             end
-            try
-                layer.value[(i-1)*layer.unit_size[1]+l+1, b] = input[register]
-                layer.weights[(i-1)*layer.unit_size[1]+l+1, b] = register
-            catch e
-                #println(i, " ", l)
-                #println(size(layer.value))
-                #It was about register!!!!
-                display(input)
-                println()
-            end
+            layer.value[(i-1)*layer.unit_size[1]+l+1, b] = input[register]
+            layer.weights[(i-1)*layer.unit_size[1]+l+1, b] = register
         end
     end
 

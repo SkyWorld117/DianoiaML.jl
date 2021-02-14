@@ -10,7 +10,7 @@ function save_Sequential(model::Sequential, path::String)
 end
 
 function load_Sequential(path::String)
-    list_of_ac_fun = [ReLU, Sigmoid, Softmax, tanH, None]
+    list_of_ac_fun = [ReLU, Sigmoid, Softmax, Softmax_CEL, tanH, None]
     model = Sequential()
 
     h5open(path, "r") do file
@@ -34,7 +34,7 @@ end
 
 function incomplete_init(name::String)
     if name=="Dense"
-        return Dense(reload=true, input_size=0, layer_size=0, randomization=false, activation_function=None)
+        return Dense(reload=true, input_size=0, layer_size=0, activation_function=None)
     elseif name=="Conv2D"
         return Conv2D(reload=true, input_filter=0, filter=0, input_size=0, input2D_size=(0,0), kernel_size=(0,0), activation_function=None)
     elseif name=="MaxPooling2D"
