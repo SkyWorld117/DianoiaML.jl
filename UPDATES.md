@@ -1,5 +1,10 @@
 # Update Log
 
+### Update 0.3.4 - 02.14.2021
+- Greatly improve the training speed by optimizing the structure. 
+- Fix that the filters in **Conv2D** cannot be updated until saved. 
+- Fix that the model cannot by trained multiple times. 
+
 ### Update 0.3.2 - 02.12.2021
 - Add **SGD** as an optimizer.
 - Optimize the structure and sytax, the "minibatch" problem is now solved. 
