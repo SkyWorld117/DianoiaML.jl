@@ -4,6 +4,8 @@ Welcome to my AI Framework project. I am new to ML/DL and I want to learn step b
 
 The user guide can be found [here](https://github.com/SkyWorld117/YisyAIFramework.jl/wiki/Introduction). Please pay attention to [installation and environment settings](https://github.com/SkyWorld117/YisyAIFramework.jl/wiki/Introduction#installation-and-environment-settings). 
 
+If you are interested in the [history](https://github.com/SkyWorld117/YisyAIFramework.jl/tree/history) versions, you can also check the [update log](https://github.com/SkyWorld117/YisyAIFramework.jl/blob/master/UPDATES.md). 
+
 Latest stable version **0.3.4** 
 
 Environment: Julia 1.5.3
