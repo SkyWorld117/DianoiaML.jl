@@ -63,7 +63,7 @@ module conv2d
         layer.output = layer.activation_function.func(layer.value)
     end
 
-    function update_Conv2D(layer::Conv2D, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters...)
+    function update_Conv2D(layer::Conv2D, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters::Tuple)
         ∇biases = layer.activation_function.get_∇biases(layer.value, Next_Layer_propagation_units)
 
         layer.propagation_units .= 0.0f0
@@ -82,6 +82,10 @@ module conv2d
             ϵ = parameters[4]
             Adam!(α, t, β₁, β₂, ϵ, Last_Layer_output, ∇biases, layer.filters, layer.Vdw, layer.Sdw, layer.step_x, layer.step_y, layer.input2D_size, (size(layer.filters,3), size(layer.filters,4)), layer.unit_size, layer.conv_num_per_row, layer.conv_num_per_col)
         elseif optimizer=="AdaBelief"
+            t = parameters[1]
+            β₁ = parameters[2]
+            β₂ = parameters[3]
+            ϵ = parameters[4]
             AdaBelief!(α, t, β₁, β₂, ϵ, Last_Layer_output, ∇biases, layer.filters, layer.Vdw, layer.Sdw, layer.step_x, layer.step_y, layer.input2D_size, (size(layer.filters,3), size(layer.filters,4)), layer.unit_size, layer.conv_num_per_row, layer.conv_num_per_col)
         end
     end

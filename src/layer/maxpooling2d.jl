@@ -54,7 +54,7 @@ module maxpooling2d
         layer.output = layer.activation_function.func(layer.value)
     end
 
-    function update_MaxPooling2D(layer::MaxPooling2D, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters...)
+    function update_MaxPooling2D(layer::MaxPooling2D, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters::Tuple)
         ∇biases = layer.activation_function.get_∇biases(layer.value, Next_Layer_propagation_units)
         PU_MaxPooling2D(layer, ∇biases)
     end

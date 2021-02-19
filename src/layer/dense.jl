@@ -64,7 +64,7 @@ module dense
         layer.output = layer.activation_function.func(layer.value)
     end
 
-    function update_Dense(layer::Dense, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters...)
+    function update_Dense(layer::Dense, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters::Tuple)
         ∇biases = layer.activation_function.get_∇biases(layer.value, Next_Layer_propagation_units)
         @avx for x in axes(layer.weights, 2), y in axes(∇biases, 2)
             c = 0.0f0
