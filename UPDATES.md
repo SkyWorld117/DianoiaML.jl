@@ -1,5 +1,10 @@
 # Update Log
 
+### Update 0.3.5 - 02.19.2021
+- Fix that **AdaBelief** activates **Adam**. 
+- Optimize the structure for development of **GAN** model in the future. 
+- Update the argument keywords for `fit` function. 
+
 ### Update 0.3.4 - 02.14.2021
 - Greatly improve the training speed by optimizing the structure. 
 - Fix that the filters in **Conv2D** cannot be updated until saved. 
