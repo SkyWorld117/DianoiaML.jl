@@ -4,7 +4,7 @@
 - Add **GAN** as a new type of networks. 
 - Split **Cross_Entropy_Loss** to **Categorical_Cross_Entropy_Loss** and **Binary_Cross_Entropy_Loss**. 
 - Fix the loss display of **AdaBelief**. 
-- Known issues: there is a possibility to produce **NaN**, I am still working on it. 
+- Known issues: there is a possibility to produce **NaN**, I am still working on it. For now, reduce the usage of **ReLU** in relatively deep networks may solve the problem. 
 
 ### Update 0.3.5 - 02.19.2021
 - Fix that **AdaBelief** activates **Adam**. 
