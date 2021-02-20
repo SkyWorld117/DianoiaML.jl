@@ -30,7 +30,8 @@ Features:
   - tanh
 - Loss Function
   - Quadratic Loss
-  - Cross Entropy Loss
+  - Categorical Cross Entropy Loss
+  - Binary Cross Entropy Loss
   - Mean Squared Error
 - Monitor
   - Absolute
