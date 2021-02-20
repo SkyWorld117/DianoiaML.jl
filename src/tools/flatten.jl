@@ -10,11 +10,7 @@ function flatten(Dataset::Any, batch_dim::Int64)
     end
     input_data = zeros(Float32, (len, size(Dataset, batch_dim)))
     @threads for i in axes(Dataset, batch_dim)
-        if dims==3
-            input_data[:,i] = Array{Float32}(reshape(transpose(selectdim(Dataset, batch_dim, i)), (len,1)))
-        else
-            input_data[:,i] = Array{Float32}(reshape(selectdim(Dataset, batch_dim, i), (len,1)))
-        end
+        input_data[:,i] = Array{Float32}(reshape(selectdim(Dataset, batch_dim, i), (len,1)))
     end
     return input_data
 end

@@ -1,12 +1,12 @@
 module maxpooling2d
-    using LoopVectorization
+    using LoopVectorization, HDF5
 
     mutable struct MaxPooling2D
         save_layer::Any
         load_layer::Any
-        activator::Any
-        initializer::Any
-        updater::Any
+        activate::Any
+        initialize::Any
+        update::Any
 
         input_size::Int64
         layer_size::Int64
@@ -54,7 +54,7 @@ module maxpooling2d
         layer.output = layer.activation_function.func(layer.value)
     end
 
-    function update_MaxPooling2D(layer::MaxPooling2D, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters::Tuple)
+    function update_MaxPooling2D(layer::MaxPooling2D, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters::Tuple, direction::Int64=0)
         ∇biases = layer.activation_function.get_∇biases(layer.value, Next_Layer_propagation_units)
         PU_MaxPooling2D(layer, ∇biases)
     end
@@ -87,7 +87,7 @@ module maxpooling2d
             register = 0
             for j in 1:layer.kernel_size[1]
                 for k in 1:layer.kernel_size[2]
-                    if input[(i-1)*layer.unit_size[2]+index+k,b]>max_value
+                    if input[(i-1)*layer.unit_size[2]+index+k,b]>=max_value
                         max_value = input[(i-1)*layer.unit_size[2]+index+k,b]
                         register = (i-1)*layer.unit_size[2]+index+k
                     end

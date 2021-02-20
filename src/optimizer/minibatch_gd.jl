@@ -4,7 +4,7 @@ module Minibatch_GD
         batch_input_data = zeros(Float32, (size(input_data, 1), batch_size))
         batch_output_data = zeros(Float32, (size(output_data, 1), batch_size))
 
-        model.initializer(model, mini_batch)
+        model.initialize(model, mini_batch)
 
         for e in 1:epochs
             print("Epoch ", e, " [")
@@ -24,7 +24,7 @@ module Minibatch_GD
                     if ((t+4)÷mini_batch)%ceil(batch_size/(50*mini_batch))==0
                         print("=")
                     end
-                    model.updater(model, current_input_data, current_output_data, loss_function, monitor, "Minibatch_GD", α)
+                    model.update(model, current_input_data, current_output_data, loss_function, monitor, "Minibatch_GD", α)
                 end
                 print("] with loss ", model.loss, ", time usage")
                 model.loss = 0.0

@@ -30,10 +30,16 @@ module YisyAIFramework
     include("./network/sequential.jl")
     using .sequential:Sequential, Hidden_Output_Layer, def
     export Sequential, Hidden_Output_Layer, def
+    include("./network/gan.jl")
+    using .gan:GAN, Gdef, Ddef
+    export GAN, Gdef, Ddef
 
-    include("./loss_function/cross_entropy_loss.jl")
-    using .Cross_Entropy_Loss
-    export Cross_Entropy_Loss
+    include("./loss_function/categorical_cross_entropy_loss.jl")
+    using .Categorical_Cross_Entropy_Loss
+    export Categorical_Cross_Entropy_Loss
+    include("./loss_function/binary_cross_entropy_loss.jl")
+    using .Binary_Cross_Entropy_Loss
+    export Binary_Cross_Entropy_Loss
     include("./loss_function/quadratic_loss.jl")
     using .Quadratic_Loss
     export Quadratic_Loss
@@ -65,8 +71,8 @@ module YisyAIFramework
     export SGD
 
     include("./tools/model_management.jl")
-    export save_Sequential
-    export load_Sequential
+    export save_Sequential, load_Sequential
+    export save_GAN, load_GAN
     include("./tools/one_hot.jl")
     export One_Hot
     include("./tools/flatten.jl")

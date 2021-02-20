@@ -6,9 +6,9 @@ module dense
     mutable struct Dense
         save_layer::Any
         load_layer::Any
-        activator::Any
-        initializer::Any
-        updater::Any
+        activate::Any
+        initialize::Any
+        update::Any
 
         input_size::Int64
         layer_size::Int64
@@ -64,7 +64,7 @@ module dense
         layer.output = layer.activation_function.func(layer.value)
     end
 
-    function update_Dense(layer::Dense, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters::Tuple)
+    function update_Dense(layer::Dense, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters::Tuple, direction::Int64=1)
         ∇biases = layer.activation_function.get_∇biases(layer.value, Next_Layer_propagation_units)
         @avx for x in axes(layer.weights, 2), y in axes(∇biases, 2)
             c = 0.0f0
@@ -77,11 +77,11 @@ module dense
 
         if optimizer=="SGD"
             @avx for x in axes(∇biases, 1), y in axes(Last_Layer_output, 1)
-                layer.weights[x,y] -= α*∇biases[x,1]*Last_Layer_output[y,1]
+                layer.weights[x,y] -= α*∇biases[x,1]*Last_Layer_output[y,1]*direction
             end
             # layer.weights -= ∇biases*transpose(Last_Layer_output).*α
             @avx for i in 1:length(layer.biases)
-                layer.biases[i] -= α*∇biases[i,1]
+                layer.biases[i] -= α*∇biases[i,1]*direction
             end
             # layer.biases -= sum(∇biases, dims=2).*α
 
@@ -91,7 +91,7 @@ module dense
                 for b in axes(∇biases, 2)
                     c += ∇biases[x,b]*Last_Layer_output[y,b]
                 end
-                layer.weights[x,y] -= c*α
+                layer.weights[x,y] -= c*α*direction
             end
             # layer.weights -= ∇biases*transpose(Last_Layer_output).*α
             @avx for i in 1:length(layer.biases)
@@ -99,7 +99,7 @@ module dense
                 for b in axes(∇biases, 2)
                     c += ∇biases[i,b]
                 end
-                layer.biases[i] -= c*α
+                layer.biases[i] -= c*α*direction
             end
             # layer.biases -= sum(∇biases, dims=2).*α
 
@@ -112,13 +112,13 @@ module dense
             @avx for x in axes(∇biases, 1), y in axes(Last_Layer_output, 1)
                 layer.Vdw[x,y] = layer.Vdw[x,y]*β₁ + ∇biases[x,1]*Last_Layer_output[y,1]*(1-β₁)
                 layer.Sdw[x,y] = layer.Sdw[x,y]*β₂ + (∇biases[x,1]*Last_Layer_output[y,1])^2*(1-β₂)
-                layer.weights[x,y] -= α*(layer.Vdw[x,y]/(1-β₁^t))/(sqrt(layer.Sdw[x,y]/(1-β₂^t))+ϵ)
+                layer.weights[x,y] -= α*(layer.Vdw[x,y]/(1-β₁^t))/(sqrt(layer.Sdw[x,y]/(1-β₂^t))+ϵ)*direction
             end
 
             @avx for i in 1:length(layer.biases)
                 layer.Vdb[i] = layer.Vdb[i]*β₁ + ∇biases[i,1]*(1-β₁)
                 layer.Sdb[i] = layer.Sdb[i]*β₂ + ∇biases[i,1]^2*(1-β₂)
-                layer.biases[i] -= α*(layer.Vdb[i]/(1-β₁^t))/(sqrt(layer.Sdb[i]/(1-β₂^t))+ϵ)
+                layer.biases[i] -= α*(layer.Vdb[i]/(1-β₁^t))/(sqrt(layer.Sdb[i]/(1-β₂^t))+ϵ)*direction
             end
 
         elseif optimizer=="AdaBelief"
@@ -130,13 +130,13 @@ module dense
             @avx for x in axes(∇biases, 1), y in axes(Last_Layer_output, 1)
                 layer.Vdw[x,y] = layer.Vdw[x,y]*β₁ + ∇biases[x,1]*Last_Layer_output[y,1]*(1-β₁)
                 layer.Sdw[x,y] = layer.Sdw[x,y]*β₂ + (∇biases[x,1]*Last_Layer_output[y,1]-layer.Vdw[x,y])^2*(1-β₂) + ϵ
-                layer.weights[x,y] -= α*(layer.Vdw[x,y]/(1-β₁^t))/(sqrt(layer.Sdw[x,y]/(1-β₂^t))+ϵ)
+                layer.weights[x,y] -= α*(layer.Vdw[x,y]/(1-β₁^t))/(sqrt(layer.Sdw[x,y]/(1-β₂^t))+ϵ)*direction
             end
 
             @avx for i in 1:length(layer.biases)
                 layer.Vdb[i] = layer.Vdb[i]*β₁ + ∇biases[i,1]*(1-β₁)
                 layer.Sdb[i] = layer.Sdb[i]*β₂ + (∇biases[i,1]-layer.Vdb[i])^2*(1-β₂)
-                layer.biases[i] -= α*(layer.Vdb[i]/(1-β₁^t))/(sqrt(layer.Sdb[i]/(1-β₂^t))+ϵ)
+                layer.biases[i] -= α*(layer.Vdb[i]/(1-β₁^t))/(sqrt(layer.Sdb[i]/(1-β₂^t))+ϵ)*direction
             end
         end
     end

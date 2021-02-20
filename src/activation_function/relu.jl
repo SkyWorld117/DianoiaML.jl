@@ -6,7 +6,7 @@ module ReLU
     function func(value_matrix::Array{Float32})
         output_matrix = zeros(Float32, size(value_matrix))
         Threads.@threads for i in eachindex(output_matrix)
-            output_matrix[i] = max(value_matrix[i], 0)
+            output_matrix[i] = value_matrix[i]>0 ? value_matrix[i] : 0
         end
         return output_matrix
     end
