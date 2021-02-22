@@ -1,4 +1,6 @@
 module Mean_Squared_Error
+    using .Threads
+
     function opt_func(output::Float32, sample::Float32)
         return (output-sample)^2
     end
@@ -10,7 +12,7 @@ module Mean_Squared_Error
     function func(output_matrix::Array{Float32}, sample_matrix::Array{Float32})
         layer_size = size(output_matrix, 1)
         loss_matrix = zeros(Float32, size(output_matrix))
-        Threads.@threads for i in eachindex(loss_matrix)
+        @threads for i in eachindex(loss_matrix)
             loss_matrix[i] = opt_func(output_matrix[i], sample_matrix[i])/layer_size
         end
         return loss_matrix
@@ -19,7 +21,7 @@ module Mean_Squared_Error
     function prop(output_matrix::Array{Float32}, sample_matrix::Array{Float32})
         layer_size = size(output_matrix, 1)
         propagation_units = zeros(Float32, size(output_matrix))
-        Threads.@threads for i in eachindex(propagation_units)
+        @threads for i in eachindex(propagation_units)
             propagation_units[i] = opt_pu(output_matrix[i], sample_matrix[i])/layer_size
         end
         return propagation_units

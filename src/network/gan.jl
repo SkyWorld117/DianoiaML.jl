@@ -1,4 +1,6 @@
 module gan
+    using .Threads
+
     Gdef = 0
     Ddef = 0
 
@@ -56,7 +58,7 @@ module gan
         if length(model.layers) == model.num_Glayer+model.num_Dlayer+1
             push!(model.layers, Hidden_Output_Layer(Float32[]))
         end
-        Threads.@threads for i in 2:length(model.layers)-1
+        @threads for i in 2:length(model.layers)-1
             model.layers[i].initialize(model.layers[i], mini_batch)
         end
         model.G_range = 2:model.num_Glayer+1
@@ -89,6 +91,7 @@ module gan
         for i in Iterators.reverse(model.D_range)
             model.layers[i].update(model.layers[i], optimizer, model.layers[i-1].output, model.layers[i+1].propagation_units, α, parameters)
         end
+        model.loss += monitor.func(model.layers[end-1].output, current_output_data)
 
         model.activate(model)
         model.layers[end].propagation_units = loss_function.prop(model.layers[end-1].output, reshape([0.0f0; 1.0f0], (2,1)))

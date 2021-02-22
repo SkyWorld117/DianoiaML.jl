@@ -1,4 +1,6 @@
 module sequential
+    using .Threads
+
     def = 0
 
     mutable struct Sequential
@@ -34,7 +36,7 @@ module sequential
         if length(model.layers)==model.num_layer+1
             push!(model.layers, Hidden_Output_Layer(Float32[]))
         end
-        Threads.@threads for i in 2:length(model.layers)-1
+        @threads for i in 2:length(model.layers)-1
             model.layers[i].initialize(model.layers[i], mini_batch)
         end
     end

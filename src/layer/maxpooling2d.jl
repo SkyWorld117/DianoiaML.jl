@@ -1,5 +1,5 @@
 module maxpooling2d
-    using LoopVectorization, HDF5
+    using LoopVectorization, HDF5, .Threads
 
     mutable struct MaxPooling2D
         save_layer::Any
@@ -46,7 +46,7 @@ module maxpooling2d
 
         conv_num_per_row = (layer.input2D_size[2]-layer.kernel_size[2])÷layer.step_x+1
         conv_num_per_col = (layer.input2D_size[1]-layer.kernel_size[1])÷layer.step_y+1
-        Threads.@threads for i in 1:layer.input_size÷layer.unit_size[2]
+        @threads for i in 1:layer.input_size÷layer.unit_size[2]
             for b in 1:batch_size
                 create_value(layer, input, b, i, conv_num_per_row, conv_num_per_col)
             end
@@ -69,7 +69,7 @@ module maxpooling2d
                 end
             end
         else
-            Threads.@threads for i in 1:layer.input_size
+            @threads for i in 1:layer.input_size
                 for b in 1:batch_size
                     for x in findall(y->y==i, layer.weights[:,b])
                         layer.propagation_units[i,b] += ∇biases[x,b]
