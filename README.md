@@ -6,7 +6,7 @@ The user guide can be found [here](https://github.com/SkyWorld117/YisyAIFramewor
 
 If you are interested in the [history](https://github.com/SkyWorld117/YisyAIFramework.jl/tree/history) versions, you can also check the [update log](https://github.com/SkyWorld117/YisyAIFramework.jl/blob/master/UPDATES.md). 
 
-Latest stable version **0.3.6** 
+Latest stable version **0.3.7** 
 
 Environment: Julia 1.5.3
 
