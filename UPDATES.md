@@ -1,5 +1,10 @@
 # Update Log
 
+### Update 0.3.7 - 02.22.2021
+- Add a limit of interval **(-3.0f38, 3.0f38)** for value to prevent overflow and **NaN**. 
+- **GAN** can now display the loss of discriminator. 
+- Sightly improve the sytax. 
+
 ### Update 0.3.6 - 02.20.2021
 - Add **GAN** as a new type of networks. 
 - Split **Cross_Entropy_Loss** to **Categorical_Cross_Entropy_Loss** and **Binary_Cross_Entropy_Loss**. 
