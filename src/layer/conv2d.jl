@@ -124,7 +124,7 @@ module conv2d
                 index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
                 for j in 1:kernel_size[1]
                     for k in 1:kernel_size[2]
-                        filters[x+1,y+1,j,k] -= α/unit_size[1]*∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]*direction
+                        filters[x+1,y+1,j,k] -= α*∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]*direction
                     end
                     index += input2D_size[2]
                 end
@@ -142,7 +142,7 @@ module conv2d
                         for b in axes(∇biases, 2)
                             c += ∇biases[x*unit_size[1]+i+1,b]*Last_Layer_output[y*unit_size[2]+index+k,b]
                         end
-                        filters[x+1,y+1,j,k] -= c*α/unit_size[1]*direction
+                        filters[x+1,y+1,j,k] -= c*α*direction/size(∇biases, 2)
                     end
                     index += input2D_size[2]
                 end
@@ -160,8 +160,8 @@ module conv2d
                 index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
                 for j in 1:kernel_size[1]
                     for k in 1:kernel_size[2]
-                        Vdw[x+1,y+1,j,k] += ∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]*(1-β₁)/unit_size[1]
-                        Sdw[x+1,y+1,j,k] += (∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1])^2*(1-β₂)/unit_size[1]
+                        Vdw[x+1,y+1,j,k] += ∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]*(1-β₁)
+                        Sdw[x+1,y+1,j,k] += (∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1])^2*(1-β₂)
                     end
                     index += input2D_size[2]
                 end
@@ -176,14 +176,15 @@ module conv2d
         @avx for a in axes(filters, 1), b in axes(filters, 2), c in axes(filters, 3), d in axes(filters, 4)
             Vdw[a,b,c,d] *= β₁
             Sdw[a,b,c,d] *= β₂
+            Sdw[a,b,c,d] += ϵ
         end
         @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1, b in axes(∇biases, 2)
             for i in 0:unit_size[1]-1
                 index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
                 for j in 1:kernel_size[1]
                     for k in 1:kernel_size[2]
-                        Vdw[x+1,y+1,j,k] += ∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]*(1-β₁)/unit_size[1]
-                        Sdw[x+1,y+1,j,k] += (∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]-Vdw[x+1,y+1,j,k])^2*(1-β₂)/unit_size[1]
+                        Vdw[x+1,y+1,j,k] += ∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]*(1-β₁)
+                        Sdw[x+1,y+1,j,k] += (∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]-Vdw[x+1,y+1,j,k])^2*(1-β₂)
                     end
                     index += input2D_size[2]
                 end

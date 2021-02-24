@@ -91,7 +91,7 @@ module dense
                 for b in axes(∇biases, 2)
                     c += ∇biases[x,b]*Last_Layer_output[y,b]
                 end
-                layer.weights[x,y] -= c*α*direction
+                layer.weights[x,y] -= c*α*direction/size(∇biases, 2)
             end
             # layer.weights -= ∇biases*transpose(Last_Layer_output).*α
             @avx for i in 1:length(layer.biases)
@@ -99,7 +99,7 @@ module dense
                 for b in axes(∇biases, 2)
                     c += ∇biases[i,b]
                 end
-                layer.biases[i] -= c*α*direction
+                layer.biases[i] -= c*α*direction/size(∇biases, 2)
             end
             # layer.biases -= sum(∇biases, dims=2).*α
 
