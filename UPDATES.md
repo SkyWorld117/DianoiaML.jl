@@ -1,7 +1,7 @@
 # Update Log
 
 ### Update 0.3.8 - 02.24.2021
-- Fix that the speed of convergence for training convolutional networks are slower as expected. (Except with **Minibatch_GD**, I suppose this optimizer is just inefficient in this case. )
+- Fix that the speed of convergence for training convolutional networks is slower as expected. (Except with **Minibatch_GD**, I suppose this optimizer is just inefficient in this case. )
 - Support **HDF5.jl** 0.15.4
 
 ### Update 0.3.7 - 02.22.2021
