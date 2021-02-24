@@ -1,5 +1,9 @@
 # Update Log
 
+### Update 0.3.8 - 02.24.2021
+- Fix that the speed of convergence for training convolutional networks are slower as expected. (Except with **Minibatch_GD**, I suppose this optimizer is just inefficient in this case. )
+- Support **HDF5.jl** 0.15.4
+
 ### Update 0.3.7 - 02.22.2021
 - Add a limit of interval **(-3.0f38, 3.0f38)** for value to prevent overflow and **NaN**. 
 - **GAN** can now display the loss of discriminator. 
