@@ -6,12 +6,12 @@ The user guide can be found [here](https://github.com/SkyWorld117/YisyAIFramewor
 
 If you are interested in the [history](https://github.com/SkyWorld117/YisyAIFramework.jl/tree/history) versions, you can also check the [update log](https://github.com/SkyWorld117/YisyAIFramework.jl/blob/master/UPDATES.md). 
 
-Latest stable version **0.3.7** 
+Latest stable version **0.3.8** 
 
 Environment: Julia 1.5.3
 
 Dependencies: 
-- [HDF5.jl](https://github.com/JuliaIO/HDF5.jl) 0.15.3
+- [HDF5.jl](https://github.com/JuliaIO/HDF5.jl) 0.15.4
 - [LoopVectorization.jl](https://github.com/chriselrod/LoopVectorization.jl) 0.11.2
 
 Features: 
