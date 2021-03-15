@@ -6,7 +6,7 @@ The user guide can be found [here](https://github.com/SkyWorld117/YisyAIFramewor
 
 If you are interested in the [history](https://github.com/SkyWorld117/YisyAIFramework.jl/tree/history) versions, you can also check the [update log](https://github.com/SkyWorld117/YisyAIFramework.jl/blob/master/UPDATES.md). 
 
-Latest stable version **0.3.8** 
+Latest stable version **0.3.9** 
 
 Environment: Julia 1.5.3
 
@@ -23,6 +23,7 @@ Features:
   - Dense
   - Convolutional2D
   - MaxPooling2D
+  - UpSampling2D
 - Activation Function
   - ReLU
   - Sigmoid
@@ -41,6 +42,7 @@ Features:
   - Stochastic Gradient Descent
   - Adam
   - AdaBelief
+  - Genetic Algorithm (experimental)
 - Tools
   - Model Management
   - One Hot
