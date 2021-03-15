@@ -1,5 +1,5 @@
 module None
-    using .Threads
+    using .Threads, LoopVectorization
 
     function func(value_matrix::Array{Float32})
         @threads for i in eachindex(value_matrix)
@@ -13,8 +13,10 @@ module None
         return output_matrix
     end
 
-    function get_∇biases(input_matrix::Array{Float32}, propagation_units::Array{Float32})
-        return propagation_units
+    function get_∇biases!(∇biases::Array{Float32}, input_matrix::Array{Float32}, propagation_units::Array{Float32})
+        @avx for i in axes(∇biases, 1), j in axes(∇biases, 2)
+            ∇biases[i,j] = propagation_units[i,j]
+        end
     end
 
     function get_name()

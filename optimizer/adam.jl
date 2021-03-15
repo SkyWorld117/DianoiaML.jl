@@ -9,7 +9,7 @@ module Adam
         model.initialize(model, 1)
 
         for e in 1:epochs
-            print("Epoch ", e, " [")
+            print("Epoch ", e, "\n[")
             @threads for i in 1:batch_size
                 index = rand(1:size(input_data, 2))
                 batch_input_data[:,i] = input_data[:,index]

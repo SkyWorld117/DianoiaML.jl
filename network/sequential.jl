@@ -38,9 +38,9 @@ module sequential
             kwargs = Dict(args)
             model.default_input_filter = kwargs[:filter]
             input2D_size = model.layers[end].input2D_size
-            #padding = kwargs[:padding]
             kernel_size = kwargs[:kernel_size]
-            model.default_input2D_size = (input2D_size[1]-kernel_size[1]+1, input2D_size[2]-kernel_size[2]+1)
+            step_x, step_y = model.layers[end].step_x, model.layers[end].step_y
+            model.default_input2D_size = ((input2D_size[1]-kernel_size[1])÷step_y+1, (input2D_size[2]-kernel_size[2])÷step_x+1)
         catch e
         end
     end

@@ -18,12 +18,10 @@ module tanH
         return output_matrix
     end
 
-    function get_∇biases(input_matrix::Array{Float32}, propagation_units::Array{Float32})
-        derivative = zeros(Float32, size(input_matrix))
+    function get_∇biases!(∇biases::Array{Float32}, input_matrix::Array{Float32}, propagation_units::Array{Float32})
         @threads for i in eachindex(input_matrix)
-            derivative[i] = opt_diff(input_matrix[i])
+            ∇biases[i] = opt_diff(input_matrix[i])*propagation_units[i]
         end
-        return derivative.*propagation_units
     end
 
     function get_name()
