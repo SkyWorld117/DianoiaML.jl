@@ -1,5 +1,12 @@
 # Update Log
 
+### Update 0.3.9 - 03.15.2021
+- Update the API and it can now auto-complete most of the parameters. 
+- Add **padding** and **biases** in **Conv2D**. 
+- Add **UpSampling2D** as a layer. 
+- Add **Genetic Algorithm** as an experimental optimizer. 
+- Fixed a few bugs. 
+
 ### Update 0.3.8 - 02.24.2021
 - Fix that the speed of convergence for training convolutional networks is slower as expected. (Except with **Minibatch_GD**, I suppose this optimizer is just inefficient in this case. )
 - Support **HDF5.jl** 0.15.4
