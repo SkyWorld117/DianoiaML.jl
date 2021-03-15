@@ -1,5 +1,5 @@
 module Softmax_CEL
-    using .Threads
+    using .Threads, LoopVectorization
 
     function opt_func(values)
         return exp.(values.-maximum(values))/sum(exp.(values.-maximum(values)))
@@ -29,18 +29,18 @@ module Softmax_CEL
         return derivative_vector
     end
 
-    function get_∇biases(input_matrix::Array{Float32}, propagation_units::Array{Float32})
-        derivative = zeros(Float32, size(input_matrix))
-        layer_size = size(input_matrix, 1)
-        batch_size = size(input_matrix, 2)
-        for b in 1:batch_size
-            for l in 1:layer_size
+    function get_∇biases!(∇biases::Array{Float32}, input_matrix::Array{Float32}, propagation_units::Array{Float32})
+        @avx for i in axes(∇biases, 1), j in axes(∇biases, 2)
+            ∇biases[i,j] = 0.0f0
+        end
+
+        for b in axes(input_matrix, 2)
+            for l in axes(input_matrix, 1)
                 if propagation_units[l,b]!=0
-                    derivative[:,b] += pre_diff(input_matrix[:,b], l)
+                    ∇biases[:,b] += pre_diff(input_matrix[:,b], l)
                 end
             end
         end
-        return derivative
     end
 
     function get_name()
@@ -49,7 +49,7 @@ module Softmax_CEL
 end
 
 module Softmax
-    using .Threads
+    using .Threads, LoopVectorization
 
     function opt_func(values)
         return exp.(values.-maximum(values))/sum(exp.(values.-maximum(values)))
@@ -79,18 +79,22 @@ module Softmax
         return derivative_vector
     end
 
-    function get_∇biases(input_matrix::Array{Float32}, propagation_units::Array{Float32})
-        derivative = zeros(Float32, size(input_matrix))
-        layer_size = size(input_matrix, 1)
-        batch_size = size(input_matrix, 2)
-        for b in 1:batch_size
-            for l in 1:layer_size
+    function get_∇biases!(∇biases::Array{Float32}, input_matrix::Array{Float32}, propagation_units::Array{Float32})
+        @avx for i in axes(∇biases, 1), j in axes(∇biases, 2)
+            ∇biases[i,j] = 0.0f0
+        end
+
+        for b in axes(input_matrix, 2)
+            for l in axes(input_matrix, 1)
                 if propagation_units[l,b]!=0
-                    derivative[:,b] += pre_diff(input_matrix[:,b], l)
+                    ∇biases[:,b] += pre_diff(input_matrix[:,b], l)
                 end
             end
         end
-        return derivative.*propagation_units
+
+        @avx for i in axes(∇biases, 1), j in axes(∇biases, 2)
+            ∇biases[i,j] *= propagation_units[i,j]
+        end
     end
 
     function get_name()

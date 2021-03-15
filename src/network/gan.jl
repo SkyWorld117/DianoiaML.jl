@@ -1,9 +1,6 @@
 module gan
     using .Threads
 
-    Gdef = 0
-    Ddef = 0
-
     mutable struct GAN
         layers::Array{Any}
         initialize::Any
@@ -18,16 +15,18 @@ module gan
         add_Dlayer::Any
         num_Glayer::Int64
         num_Dlayer::Int64
-        temp_Glayers::Array{Any}
-        temp_Dlayers::Array{Any}
 
         loss::Float64
+
+        default_input_size::Int64
+        default_input_filter::Int64
+        default_input2D_size::Tuple
 
         G_range::UnitRange{Int64}
         D_range::UnitRange{Int64}
 
         function GAN(noise_generator)
-            new(Any[Hidden_Input_Layer(Float32[])], init_GAN, activate_GAN, activate_Generator, activate_Discriminator, update_GAN, noise_generator, GAN_add_Glayer, GAN_add_Dlayer, 0, 0, Any[], Any[], 0.0)
+            new(Any[Hidden_Input_Layer(Float32[])], init_GAN, activate_GAN, activate_Generator, activate_Discriminator, update_GAN, noise_generator, GAN_add_Glayer, GAN_add_Dlayer, 0, 0, 0.0, 0, 1, ())
         end
     end
 
@@ -38,23 +37,44 @@ module gan
         propagation_units::Array{Float32}
     end
 
-    function GAN_add_Glayer(model::GAN, layer::Any)
-        global Gdef
-        push!(model.temp_Glayers, layer)
+    function GAN_add_Glayer(model::GAN, layer::Any;args...)
+        try
+            push!(model.layers, layer(;input_size=model.default_input_size, input_filter=model.default_input_filter, input2D_size=model.default_input2D_size, args...))
+        catch e
+            push!(model.layers, layer(;input_size=model.default_input_size, args...))
+        end
+        model.default_input_size = model.layers[end].layer_size
+        try
+            kwargs = Dict(args)
+            model.default_input_filter = kwargs[:filter]
+            input2D_size = model.layers[end].input2D_size
+            #padding = kwargs[:padding]
+            kernel_size = kwargs[:kernel_size]
+            model.default_input2D_size = (input2D_size[1]-kernel_size[1]+1, input2D_size[2]-kernel_size[2]+1)
+        catch e
+        end
         model.num_Glayer += 1
-        Gdef = layer.layer_size
     end
-    function GAN_add_Dlayer(model::GAN, layer::Any)
-        global Ddef
-        push!(model.temp_Dlayers, layer)
+    function GAN_add_Dlayer(model::GAN, layer::Any;args...)
+        try
+            push!(model.layers, layer(;input_size=model.default_input_size, input_filter=model.default_input_filter, input2D_size=model.default_input2D_size, args...))
+        catch e
+            push!(model.layers, layer(;input_size=model.default_input_size, args...))
+        end
+        model.default_input_size = model.layers[end].layer_size
+        try
+            kwargs = Dict(args)
+            model.default_input_filter = kwargs[:filter]
+            input2D_size = model.layers[end].input2D_size
+            #padding = kwargs[:padding]
+            kernel_size = kwargs[:kernel_size]
+            model.default_input2D_size = (input2D_size[1]-kernel_size[1]+1, input2D_size[2]-kernel_size[2]+1)
+        catch e
+        end
         model.num_Dlayer += 1
-        Ddef = layer.layer_size
     end
 
     function init_GAN(model::GAN, mini_batch::Int64)
-        if length(model.layers) < model.num_Glayer+model.num_Dlayer+1
-            model.layers = vcat(model.layers, model.temp_Glayers, model.temp_Dlayers)
-        end
         if length(model.layers) == model.num_Glayer+model.num_Dlayer+1
             push!(model.layers, Hidden_Output_Layer(Float32[]))
         end

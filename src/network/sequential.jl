@@ -1,8 +1,6 @@
 module sequential
     using .Threads
 
-    def = 0
-
     mutable struct Sequential
         layers::Array{Any}
         add_layer::Any
@@ -13,8 +11,11 @@ module sequential
 
         loss::Float64
 
+        default_input_size::Int64
+        default_input_filter::Int64
+        default_input2D_size::Tuple
         function Sequential()
-            new(Any[Hidden_Input_Layer(Float32[])], Sequential_add_layer, activate_Sequential, init_Sequential, update_Sequential, 0, 0.0)
+            new(Any[Hidden_Input_Layer(Float32[])], Sequential_add_layer, activate_Sequential, init_Sequential, update_Sequential, 0, 0.0, 0, 1, ())
         end
     end
 
@@ -25,11 +26,23 @@ module sequential
         propagation_units::Array{Float32}
     end
 
-    function Sequential_add_layer(model::Sequential, layer::Any)
-        global def
-        push!(model.layers, layer)
+    function Sequential_add_layer(model::Sequential, layer::Any; args...)
+        try
+            push!(model.layers, layer(;input_size=model.default_input_size, input_filter=model.default_input_filter, input2D_size=model.default_input2D_size, args...))
+        catch e
+            push!(model.layers, layer(;input_size=model.default_input_size, args...))
+        end
         model.num_layer += 1
-        def = layer.layer_size
+        model.default_input_size = model.layers[end].layer_size
+        try
+            kwargs = Dict(args)
+            model.default_input_filter = kwargs[:filter]
+            input2D_size = model.layers[end].input2D_size
+            kernel_size = kwargs[:kernel_size]
+            step_x, step_y = model.layers[end].step_x, model.layers[end].step_y
+            model.default_input2D_size = ((input2D_size[1]-kernel_size[1])÷step_y+1, (input2D_size[2]-kernel_size[2])÷step_x+1)
+        catch e
+        end
     end
 
     function init_Sequential(model::Sequential, mini_batch::Int64)

@@ -21,6 +21,7 @@ module maxpooling2d
         weights::Array{Int64}
         value::Array{Float32}
         output::Array{Float32}
+        ∇biases::Array{Float32}
         propagation_units::Array{Float32}
 
         function MaxPooling2D(;input_filter::Int64, input_size::Int64, input2D_size::Tuple{Int64, Int64}, kernel_size::Tuple{Int64, Int64}, step_x::Int64=kernel_size[2], step_y::Int64=kernel_size[1], activation_function::Module, reload::Bool=false)
@@ -36,18 +37,21 @@ module maxpooling2d
     end
 
     function init_MaxPooling2D(layer::MaxPooling2D, mini_batch::Int64)
-        # Yes, it's empty :)
+        layer.weights = zeros(Int64, (layer.layer_size, mini_batch))
+        layer.value = zeros(Float32, (layer.layer_size, mini_batch))
+        layer.∇biases = zeros(Float32, (layer.layer_size, mini_batch))
     end
 
     function activate_MaxPooling2D(layer::MaxPooling2D, input::Array{Float32})
-        batch_size = size(input, 2)
-        layer.weights = zeros(Int64, (layer.layer_size, batch_size))
-        layer.value = zeros(Float32, (layer.layer_size, batch_size))
+        @avx for i in axes(layer.weights, 1), j in axes(layer.weights, 2)
+            layer.weights[i,j] = 0
+            layer.value[i,j] = 0.0f0
+        end
 
         conv_num_per_row = (layer.input2D_size[2]-layer.kernel_size[2])÷layer.step_x+1
         conv_num_per_col = (layer.input2D_size[1]-layer.kernel_size[1])÷layer.step_y+1
         @threads for i in 1:layer.input_size÷layer.unit_size[2]
-            for b in 1:batch_size
+            for b in 1:size(input, 2)
                 create_value(layer, input, b, i, conv_num_per_row, conv_num_per_col)
             end
         end
@@ -55,8 +59,8 @@ module maxpooling2d
     end
 
     function update_MaxPooling2D(layer::MaxPooling2D, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters::Tuple, direction::Int64=0)
-        ∇biases = layer.activation_function.get_∇biases(layer.value, Next_Layer_propagation_units)
-        PU_MaxPooling2D(layer, ∇biases)
+        layer.activation_function.get_∇biases!(layer.∇biases, layer.value, Next_Layer_propagation_units)
+        PU_MaxPooling2D(layer, layer.∇biases)
     end
 
     function PU_MaxPooling2D(layer::MaxPooling2D, ∇biases::Array{Float32})

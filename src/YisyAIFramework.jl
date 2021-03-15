@@ -26,13 +26,16 @@ module YisyAIFramework
     include("./layer/maxpooling2d.jl")
     using .maxpooling2d:MaxPooling2D
     export MaxPooling2D
+    include("./layer/upsampling2d.jl")
+    using .upsampling2d:UpSampling2D
+    export UpSampling2D
 
     include("./network/sequential.jl")
-    using .sequential:Sequential, Hidden_Output_Layer, def
-    export Sequential, Hidden_Output_Layer, def
+    using .sequential:Sequential, Hidden_Output_Layer
+    export Sequential, Hidden_Output_Layer
     include("./network/gan.jl")
-    using .gan:GAN, Gdef, Ddef
-    export GAN, Gdef, Ddef
+    using .gan:GAN
+    export GAN
 
     include("./loss_function/categorical_cross_entropy_loss.jl")
     using .Categorical_Cross_Entropy_Loss
@@ -69,6 +72,9 @@ module YisyAIFramework
     include("./optimizer/sgd.jl")
     using .SGD
     export SGD
+    include("./optimizer/ga.jl")
+    using .GA
+    export GA
 
     include("./tools/model_management.jl")
     export save_Sequential, load_Sequential

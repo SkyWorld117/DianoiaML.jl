@@ -7,6 +7,8 @@ function incomplete_init(name::String)
         return Conv2D(reload=true, input_filter=0, filter=0, input_size=0, input2D_size=(0,0), kernel_size=(0,0), activation_function=None)
     elseif name=="MaxPooling2D"
         return MaxPooling2D(reload=true, input_filter=0, input_size=0, input2D_size=(0,0), kernel_size=(0,0), activation_function=None)
+    elseif name=="UpSampling2D"
+        return UpSampling2D(reload=true, input_filter=0, input_size=0, input2D_size=(0,0), size=(0,0), activation_function=None)
     end
 end
 
