@@ -1,4 +1,7 @@
 module YisyAIFramework
+    using LinearAlgebra
+    BLAS.set_num_threads(1)
+
     include("./activation_function/relu.jl")
     using .ReLU
     export ReLU

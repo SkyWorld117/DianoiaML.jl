@@ -46,9 +46,9 @@ module GA
                     end
 
                     # Selection -> Recombination -> Mutation
-                    mr = t/(batch_size-mini_batch+1)
+                    mr =
                     for i in 1:gene_pool-num_copy
-                        push!(new_pool, recomutation(models[rand(1:length(models))], new_pool[rand(1:num_copy)], α, mr))
+                        push!(new_pool, recomutation(models[rand(1:length(models))], new_pool[rand(1:num_copy)], mr, α))
                     end
 
                     models = new_pool
