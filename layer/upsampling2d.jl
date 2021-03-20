@@ -1,5 +1,5 @@
 module upsampling2d
-    using LoopVectorization, HDF5
+    using LoopVectorization
 
     mutable struct UpSampling2D
         save_layer::Any

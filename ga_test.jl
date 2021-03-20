@@ -1,5 +1,4 @@
-using MLDatasets, LinearAlgebra
-BLAS.set_num_threads(1)
+using MLDatasets
 include("./YisyAIFramework.jl")
 using .YisyAIFramework
 
@@ -16,5 +15,5 @@ for i in 1:5
     models[i].add_layer(models[i], Dense; layer_size=128, activation_function=ReLU)
     models[i].add_layer(models[i], Dense; layer_size=10, activation_function=Softmax_CEL)
 end
-GA.fit(models=models, input_data=flatten(train_x, 3), output_data=One_Hot(train_y, 10, dict),
-        loss_function=Categorical_Cross_Entropy_Loss, monitor=Classification, epochs=10, batch=128, gene_pool=5, num_copy=1)
+GA.fit(models=models, input_data=flatten(train_x, 3), output_data=One_Hot(train_y, 10, dict), loss_function=Categorical_Cross_Entropy_Loss,
+        monitor=Classification, epochs=10, batch=128, gene_pool=5, num_copy=1, mini_batch=10)
