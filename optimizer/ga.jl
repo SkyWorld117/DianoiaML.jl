@@ -39,13 +39,39 @@ module GA
                     end
 
                     for i in 1:gene_pool-num_copy
-                        recomutation!(models[argmax(losses)], models[rand(1:gene_pool)], models[rand(1:gene_pool)], α, t, batch_size-mini_batch+1)
-                        losses[argmax(losses)] = 0.0f0
+                        #recomutation!(models[argmax(losses)], models[rand(1:gene_pool)], models[rand(1:gene_pool)], α, t, batch_size-mini_batch+1)
+                        recomutation!(models[argmax(losses)], models[sample(losses)], models[sample(losses)], α, t, batch_size-mini_batch+1)
+                        losses[argmax(losses)] = Inf32
                     end
 
-                    loss += maximum(losses)
+                    loss += minimum(losses)
                 end
                 print("] with loss ", loss, ", time usage ")
+            end
+        end
+    end
+
+    function sample(losses)
+        weights = Array{Float32, 1}(undef, length(losses))
+        s = 0.0f0
+        for i in 1:length(losses)
+            if losses[i] != Inf32
+                s += losses[i]
+            end
+        end
+        for i in 1:length(losses)
+            weights[i] = s/losses[i]
+        end
+        s = sum(weights)
+        @avx for i in 1:length(losses)
+            weights[i] /= s
+        end
+        r = rand()
+        for i in 1:length(losses)
+            if weights[i]>=r
+                return i
+            else
+                r -= weights[i]
             end
         end
     end
