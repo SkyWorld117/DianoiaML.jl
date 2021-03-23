@@ -12,7 +12,7 @@ Environment: Julia 1.5.3
 
 Dependencies: 
 - [HDF5.jl](https://github.com/JuliaIO/HDF5.jl) 0.15.4
-- [LoopVectorization.jl](https://github.com/chriselrod/LoopVectorization.jl) 0.11.2
+- [LoopVectorization.jl](https://github.com/JuliaSIMD/LoopVectorization.jl) 0.11.2
 
 Features: 
 
