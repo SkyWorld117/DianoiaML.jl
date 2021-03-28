@@ -1,5 +1,5 @@
 module maxpooling2d
-    using LoopVectorization, HDF5, .Threads
+    using LoopVectorization, .Threads
 
     mutable struct MaxPooling2D
         save_layer::Any

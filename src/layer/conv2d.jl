@@ -12,7 +12,7 @@ module conv2d
 
         input_size::Int64
         layer_size::Int64
-        kernel_size::Tuple
+        kernel_size::Tuple{Int64, Int64}
         activation_function::Module
 
         filters::Array{Float32}
@@ -121,7 +121,7 @@ module conv2d
         end
     end
 
-    function Conv2D_padding!(padding_input::Array{Float32}, input::Array{Float32}, input_filter::Int64, padding::Int64, input2D_size::Tuple, unit_size::Tuple, batch_size::Int64, original_unit::Int64, original_input2D_size::Tuple)
+    function Conv2D_padding!(padding_input::Array{Float32}, input::Array{Float32}, input_filter::Int64, padding::Int64, input2D_size::Tuple, unit_size::Tuple{Int64, Int64}, batch_size::Int64, original_unit::Int64, original_input2D_size::Tuple{Int64, Int64})
         @avx for b in 1:batch_size, f in 0:input_filter-1, i in 1:original_input2D_size[1], j in 0:original_input2D_size[2]-1
             padding_input[f*unit_size[2]+(padding+j)*input2D_size[1]+padding+i, b] = input[f*original_unit+j*original_input2D_size[1]+i, b]
         end
@@ -195,7 +195,7 @@ module conv2d
     end
 
     function Minibatch_GD!(α::Float64, Last_Layer_output::Array{Float32}, ∇biases::Array{Float32}, biases::Array{Float32}, filters::Array{Float32}, step_x::Int64, step_y::Int64, input2D_size::Tuple{Int64, Int64}, kernel_size::Tuple{Int64, Int64}, unit_size::Tuple{Int64, Int64}, conv_num_per_row::Int64, conv_num_per_col::Int64, direction::Int64)
-        @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1, b in axes(∇biases, 2)
+        @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1
             for i in 0:unit_size[1]-1
                 index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
                 for j in 1:kernel_size[1]
@@ -212,7 +212,7 @@ module conv2d
         end
 
         @avx for x in 0:size(filters, 1)-1, y in 1:unit_size[1], b in axes(∇biases, 2)
-            biases[x+1] -= α*∇biases[x*unit_size[1]+y, b]/size(∇biases, 2)*direction
+            biases[x+1] -= α*∇biases[x*unit_size[1]+y, b]*direction/size(∇biases, 2)
         end
     end
 
@@ -221,7 +221,7 @@ module conv2d
             Vdw[a,b,c,d] *= β₁
             Sdw[a,b,c,d] *= β₂
         end
-        @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1, b in axes(∇biases, 2)
+        @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1
             for i in 0:unit_size[1]-1
                 index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
                 for j in 1:kernel_size[1]
@@ -256,7 +256,7 @@ module conv2d
             Sdw[a,b,c,d] *= β₂
             Sdw[a,b,c,d] += ϵ
         end
-        @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1, b in axes(∇biases, 2)
+        @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1
             for i in 0:unit_size[1]-1
                 index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
                 for j in 1:kernel_size[1]

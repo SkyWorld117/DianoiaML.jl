@@ -1,14 +1,14 @@
 using HDF5
 
-function incomplete_init(name::String)
+function incomplete_init(model::Sequential, name::String)
     if name=="Dense"
-        return Dense(reload=true, input_size=0, layer_size=0, activation_function=None)
+        model.add_layer(model, Dense; reload=true, input_size=0, layer_size=0, activation_function=None)
     elseif name=="Conv2D"
-        return Conv2D(reload=true, input_filter=0, filter=0, input_size=0, input2D_size=(0,0), kernel_size=(0,0), activation_function=None)
+        model.add_layer(model, Conv2D; reload=true, input_filter=0, filter=0, input_size=0, input2D_size=(0,0), kernel_size=(0,0), activation_function=None)
     elseif name=="MaxPooling2D"
-        return MaxPooling2D(reload=true, input_filter=0, input_size=0, input2D_size=(0,0), kernel_size=(0,0), activation_function=None)
+        model.add_layer(model, MaxPooling2D; reload=true, input_filter=0, input_size=0, input2D_size=(0,0), kernel_size=(0,0), activation_function=None)
     elseif name=="UpSampling2D"
-        return UpSampling2D(reload=true, input_filter=0, input_size=0, input2D_size=(0,0), size=(0,0), activation_function=None)
+        model.add_layer(model, UpSampling2D; reload=true, input_filter=0, input_size=0, input2D_size=(0,0), size=(0,0), activation_function=None)
     end
 end
 
@@ -29,7 +29,7 @@ function load_Sequential(path::String)
         num_layer = read(file, "num_layer")
         for i in 1:num_layer
             layer_type = read(file, string(i))
-            model.add_layer(model, incomplete_init(layer_type))
+            incomplete_init(model, layer_type)
             model.layers[end].load_layer(model.layers[end], file, i)
             ac_fun_type = read(file, string(i)*"activation_function")
             for f in list_of_ac_fun
@@ -65,7 +65,7 @@ function load_GAN(path::String, noise_generator::Any)
         num_Dlayer = read(file, "num_Dlayer")
         for i in 1:num_Glayer
             layer_type = read(file, string(i))
-            model.add_Glayer(model, incomplete_init(layer_type))
+            incomplete_init(model, layer_type)
             model.temp_Glayers[end].load_layer(model.temp_Glayers[end], file, i)
             ac_fun_type = read(file, string(i)*"activation_function")
             for f in list_of_ac_fun
@@ -78,7 +78,7 @@ function load_GAN(path::String, noise_generator::Any)
 
         for i in num_Glayer+1:num_Glayer+num_Dlayer
             layer_type = read(file, string(i))
-            model.add_Dlayer(model, incomplete_init(layer_type))
+            incomplete_init(model, layer_type)
             model.temp_Dlayers[end].load_layer(model.temp_Dlayers[end], file, i)
             ac_fun_type = read(file, string(i)*"activation_function")
             for f in list_of_ac_fun
