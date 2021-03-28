@@ -1,6 +1,6 @@
 # YisyAIFramework
 
-Welcome to my AI Framework project. I am new to ML/DL and I want to learn step by step how frameworks like TensorFlow, Keras and PyTorch work, by developing this project. That also means, this framework is not supposed to have a high efficiency like other professional frameworks (although the current version is ***NOT*** significantly slower than Keras at all). All of these are just for learning and fun. 
+YisyAIFramework is an experimental Keras-like deep learning framework. It should work correctly, however, please reconsider if you are preparing to use it in serious researches. 
 
 The user guide and the To-Do list can be found [here](https://github.com/SkyWorld117/YisyAIFramework.jl/wiki). 
 
