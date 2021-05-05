@@ -21,17 +21,23 @@ module YisyAIFramework
     export None
 
     include("./layer/dense.jl")
-    using .dense:Dense
+    using .DenseM:Dense
     export Dense
     include("./layer/conv2d.jl")
-    using .conv2d:Conv2D
+    using .Conv2DM:Conv2D
     export Conv2D
     include("./layer/maxpooling2d.jl")
-    using .maxpooling2d:MaxPooling2D
+    using .MaxPooling2DM:MaxPooling2D
     export MaxPooling2D
     include("./layer/upsampling2d.jl")
-    using .upsampling2d:UpSampling2D
+    using .UpSampling2DM:UpSampling2D
     export UpSampling2D
+    include("./layer/flatten.jl")
+    using .FlattenM:Flatten
+    export Flatten
+    include("./layer/constructive.jl")
+    using .ConstructiveM:Constructive
+    export Constructive
 
     include("./network/sequential.jl")
     using .sequential:Sequential, Hidden_Output_Layer
@@ -82,8 +88,6 @@ module YisyAIFramework
     include("./tools/model_management.jl")
     export save_Sequential, load_Sequential
     export save_GAN, load_GAN
-    include("./tools/one_hot.jl")
-    export One_Hot
-    include("./tools/flatten.jl")
-    export flatten
+    include("./tools/oneHot.jl")
+    export oneHot
 end
