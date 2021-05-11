@@ -1,27 +1,17 @@
 module Absolute_Loss
-    using .Threads
-
-    function opt_pu(output::Float32, sample::Float32)
-        if output-sample>=0
-            return 1
-        else
-            return -1
-        end
-    end
+    using LoopVectorization
 
     function func(output_matrix::Array{Float32}, sample_matrix::Array{Float32})
         loss_matrix = zeros(Float32, size(output_matrix))
-        @threads for i in eachindex(loss_matrix)
-            loss_matrix[i] = abs(output_matrix[i]-sample_matrix[i])
+        @avxt for i in axes(output_matrix, 1), j in axes(output_matrix, 2)
+            loss_matrix[i,j] = abs(output_matrix[i,j]-sample_matrix[i,j])
         end
         return loss_matrix
     end
 
-    function prop(output_matrix::Array{Float32}, sample_matrix::Array{Float32})
-        propagation_units = zeros(Float32, size(output_matrix))
-        @threads for i in eachindex(propagation_units)
-            propagation_units[i] = opt_pu(output_matrix[i], sample_matrix[i])
+    function prop!(δ::Array{Float32}, output_matrix::Array{Float32}, sample_matrix::Array{Float32})
+        @avxt for i in eachindex(δ)
+            δ[i] = ifelse(output_matrix[i]-sample_matrix[i]>=0, 1, -1)
         end
-        return propagation_units
     end
 end

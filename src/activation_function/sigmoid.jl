@@ -1,30 +1,17 @@
 module Sigmoid
-    using .Threads
+    using LoopVectorization
 
-    function opt_func(value)
-        return value>=0 ? 1/(1+exp(-value)) : exp(value)/(1+exp(value))
-    end
-
-    function opt_diff(value)
-        return exp(-value)/(1+exp(-value))^2
-    end
-
-    function func(value_matrix::Array{Float32})
-        output_matrix = zeros(Float32, size(value_matrix))
-        @threads for i in eachindex(value_matrix)
-            if value_matrix[i] >= 3.0f38
-                value_matrix[i] = 3.0f38
-            elseif value_matrix[i] <= -3.0f38
-                value_matrix[i] = -3.0f38
-            end
-            output_matrix[i] = opt_func(value_matrix[i])
+    function func!(output_matrix::Array{Float32}, value_matrix::Array{Float32})
+        @avxt for i in eachindex(value_matrix)
+            value_matrix[i] = ifelse(value_matrix[i]>3.0f38, 3.0f38, value_matrix[i])
+            value_matrix[i] = ifelse(value_matrix[i]<-3.0f38, -3.0f38, value_matrix[i])
+            output_matrix[i] = ifelse(value_matrix[i]>=0, 1/(1+exp(-value_matrix[i])), exp(value_matrix[i])/(1+exp(value_matrix[i])))
         end
-        return output_matrix
     end
 
-    function get_∇biases!(∇biases::Array{Float32}, input_matrix::Array{Float32}, propagation_units::Array{Float32})
-        @threads for i in eachindex(input_matrix)
-            ∇biases[i] = opt_diff(input_matrix[i])*propagation_units[i]
+    function get_∇biases!(∇biases::Array{Float32}, value_matrix::Array{Float32}, δ::Array{Float32})
+        @avxt for i in eachindex(value_matrix)
+            ∇biases[i] = exp(-value_matrix[i])/(1+exp(-value_matrix[i]))^2*δ[i]
         end
     end
 

@@ -1,4 +1,4 @@
-module conv2d
+module Conv2DM
     include("../tools/glorotuniform.jl")
     using .GlorotUniform
     using LoopVectorization
@@ -10,311 +10,196 @@ module conv2d
         initialize::Any
         update::Any
 
-        input_size::Int64
-        layer_size::Int64
+        input_shape::Tuple
+        output_shape::Tuple
         kernel_size::Tuple{Int64, Int64}
         activation_function::Module
 
         filters::Array{Float32}
         biases::Array{Float32}
 
-        unit_size::Tuple{Int64, Int64}
         padding::Int64
-        input2D_size::Tuple{Int64, Int64}
-        original_input2D_size::Tuple{Int64, Int64}
-        step_x::Int64
-        step_y::Int64
+        filter::Int64
+        strides::Tuple{Int64, Int64}
 
+        ∇weights::Array{Float32}
         Vdw::Array{Float32}
         Sdw::Array{Float32}
+        ∇biases_c::Array{Float32}
         Vdb::Array{Float32}
         Sdb::Array{Float32}
-
-        conv_num_per_row::Int64
-        conv_num_per_col::Int64
 
         padding_input::Array{Float32}
         value::Array{Float32}
         output::Array{Float32}
+
         ∇biases::Array{Float32}
-        pre_propagation_units::Array{Float32}
-        propagation_units::Array{Float32}
-        original_unit::Int64
-        input_filter::Int64
-        args::Tuple
+        pre_δ::Array{Float32}
+        δ::Array{Float32}
 
-        function Conv2D(;input_filter::Int64, filter::Int64, input_size::Int64, input2D_size::Tuple{Int64, Int64}, padding::Int64=0, kernel_size::Tuple{Int64, Int64}, step_x::Int64=1, step_y::Int64=1, activation_function::Module, randomization::Bool=true, reload::Bool=false)
-            if reload
-                return new(save_Conv2D, load_Conv2D, activate_Conv2D, init_Conv2D, update_Conv2D)
+        function Conv2D(;input_shape::Tuple, filter::Int64, padding::Int64=0, kernel_size::Tuple{Int64, Int64}, strides::Tuple{Int64, Int64}=(1,1), activation_function::Module, randomization::Bool=true, reload::Bool=false)
+            conv_num_per_col = (input_shape[1]+2*padding-kernel_size[1])÷strides[1]+1
+            conv_num_per_row = (input_shape[2]+2*padding-kernel_size[2])÷strides[2]+1
+            output_shape = (conv_num_per_col, conv_num_per_row, filter)
+
+            input_size = 1
+            for i in input_shape
+                input_size *= i
             end
 
-            original_input2D_size = input2D_size
-            if padding!=0
-                input2D_size = (input2D_size[1]+2*padding, input2D_size[2]+2*padding)
-                input_size = input2D_size[1]*input2D_size[2]*input_filter
-            end
-
-            conv_num_per_row = (input2D_size[2]-kernel_size[2])÷step_x+1
-            conv_num_per_col = (input2D_size[1]-kernel_size[1])÷step_y+1
-
-            filter_size = (filter, input_filter, kernel_size[1], kernel_size[2])
+            filter_size = (filter, input_shape[3], kernel_size[1], kernel_size[2])
             filters = !randomization ? zeros(Float32, filter_size) : Array{Float32}(GUMatrix(input_size, conv_num_per_row*conv_num_per_col*filter, filter_size))
             biases = !randomization ? zeros(Float32, filter) : Array{Float32}(GUMatrix(input_size, conv_num_per_row*conv_num_per_col*filter, filter))
-            unit_size = (conv_num_per_row*conv_num_per_col, input_size÷input_filter)
 
+            ∇weights = zeros(Float32, filter_size)
             Vdw = zeros(Float32, filter_size)
             Sdw = zeros(Float32, filter_size)
+            ∇biases_c = zeros(Float32, filter)
             Vdb = zeros(Float32, filter)
             Sdb = zeros(Float32, filter)
-            new(save_Conv2D, load_Conv2D, activate_Conv2D, init_Conv2D, update_Conv2D, input_size, conv_num_per_row*conv_num_per_col*filter, kernel_size, activation_function, filters, biases, unit_size, padding, input2D_size, original_input2D_size, step_x, step_y, Vdw, Sdw, Vdb, Sdb, conv_num_per_row, conv_num_per_col)
+            new(save_Conv2D, load_Conv2D, activate_Conv2D, init_Conv2D, update_Conv2D, input_shape, output_shape, kernel_size, activation_function, filters, biases, padding, filter, strides, ∇weights, Vdw, Sdw, ∇biases_c, Vdb, Sdb)
         end
     end
 
     function init_Conv2D(layer::Conv2D, mini_batch::Int64)
-        layer.value = zeros(Float32, (layer.layer_size, mini_batch))
-        layer.∇biases = zeros(Float32, (layer.layer_size, mini_batch))
-        if layer.padding!=0
-            layer.padding_input = zeros(Float32, (layer.input_size, mini_batch))
-        end
-        layer.pre_propagation_units = zeros(Float32, (layer.input_size, mini_batch))
-        layer.original_unit = layer.original_input2D_size[1]*layer.original_input2D_size[2]
-        layer.input_filter = size(layer.filters, 2)
-        original_input_size = layer.original_unit*layer.input_filter
-        layer.propagation_units = zeros(Float32, (original_input_size, mini_batch))
+        layer.padding_input = zeros(Float32, (layer.input_shape[1]+2*layer.padding, layer.input_shape[2]+2*layer.padding, layer.input_shape[3], mini_batch))
+        layer.value = zeros(Float32, layer.output_shape..., mini_batch)
+        layer.output = zeros(Float32, layer.output_shape..., mini_batch)
 
-        layer.args = (layer.filters, layer.step_x, layer.step_y, layer.input2D_size, layer.kernel_size, layer.unit_size, layer.conv_num_per_row, layer.conv_num_per_col)
+        layer.∇biases = zeros(Float32, layer.output_shape..., mini_batch)
+        layer.pre_δ = zeros(Float32, (layer.input_shape[1]+2*layer.padding, layer.input_shape[2]+2*layer.padding, layer.input_shape[3], mini_batch))
+        layer.δ = zeros(Float32, layer.input_shape..., mini_batch)
     end
 
     function activate_Conv2D(layer::Conv2D, input::Array{Float32})
-        @avx for i in axes(layer.value, 1), j in axes(layer.value, 2)
-            layer.value[i,j] = 0.0f0
+        @avxt for i in axes(input, 1), j in axes(input, 2), c in axes(input, 3), b in axes(input, 4)
+            layer.padding_input[i+layer.padding, j+layer.padding, c, b] = input[i, j, c, b]
         end
-        if layer.padding!=0
-            Conv2D_padding!(layer.padding_input, input, layer.input_filter, layer.padding, layer.input2D_size, layer.unit_size, size(layer.value, 2), layer.original_unit, layer.original_input2D_size)
-        else
-            layer.padding_input = input
+
+        x, y = layer.strides
+        @avxt for i in axes(layer.value, 1), j in axes(layer.value, 2), f in axes(layer.value, 3), b in axes(layer.value, 4)
+            s = 0.0f0
+            for k₁ in axes(layer.filters, 3), k₂ in axes(layer.filters, 4), c in axes(layer.filters, 2)
+                s += layer.padding_input[(i-1)*x+k₁, (j-1)*y+k₂, c, b] * layer.filters[f, c, k₁, k₂]
+            end
+            layer.value[i, j, f, b] = s + layer.biases[f]
         end
-        Conv2D_mul_add!(layer.value, layer.padding_input, layer.biases, layer.args...)
-        # layer.value = layer.weights*input
-        layer.output = layer.activation_function.func(layer.value)
+
+        layer.activation_function.func!(layer.output, layer.value)
     end
 
-    function update_Conv2D(layer::Conv2D, optimizer::String, Last_Layer_output::Array{Float32}, Next_Layer_propagation_units::Array{Float32}, α::Float64, parameters::Tuple, direction::Int64=1)
-        layer.activation_function.get_∇biases!(layer.∇biases, layer.value, Next_Layer_propagation_units)
+    function update_Conv2D(layer::Conv2D, optimizer::String, input::Array{Float32}, δₗ₊₁::Array{Float32}, α::Float64, parameters::Tuple, direction::Int64=1)
+        x, y = layer.strides
+        layer.activation_function.get_∇biases!(layer.∇biases, layer.value, δₗ₊₁)
+        @avxt layer.pre_δ .= 0.0f0
 
-        if layer.padding!=0
-            layer.pre_propagation_units .= 0.0f0
+        @avxt for i in axes(layer.∇biases, 1), j in axes(layer.∇biases, 2), f in axes(layer.∇biases, 3), b in axes(layer.∇biases, 4)
+            for k₁ in axes(layer.filters, 3), k₂ in axes(layer.filters, 4), c in axes(layer.filters, 2)
+                layer.pre_δ[(i-1)*x+k₁, (j-1)*y+k₂, c, b] += layer.filters[f, c, k₁, k₂]*layer.∇biases[i, j, f, b]
+            end
         end
-        layer.propagation_units .= 0.0f0
-        Conv2D_PU!(layer.pre_propagation_units, layer.propagation_units, layer.∇biases, layer.padding, layer.args..., layer.input_filter, layer.original_input2D_size, layer.original_unit)
-        # layer.propagation_units = transpose(layer.weights)*∇biases
+
+        @avxt for i in axes(layer.δ, 1), j in axes(layer.δ, 2), c in axes(layer.δ, 3), b in axes(layer.δ, 4)
+            layer.δ[i, j, c, b] = layer.pre_δ[layer.padding+i, layer.padding+j, c, b]
+        end
 
         if optimizer=="SGD"
-            SGD!(α, layer.padding_input, layer.∇biases, layer.biases, layer.args..., direction)
-            # Current_Layer.weights -= ∇biases*transpose(Last_Layer.output).*α.*Current_Layer.weights_prop
+            @avxt for i in axes(layer.∇biases, 1), j in axes(layer.∇biases, 2), f in axes(layer.∇biases, 3)
+                for k₁ in axes(layer.filters, 3), k₂ in axes(layer.filters, 4), c in axes(layer.filters, 2)
+                    layer.filters[f, c, k₁, k₂] -= α*layer.padding_input[(i-1)*x+k₁, (j-1)*y+k₂, c, 1]*layer.∇biases[i, j, f, 1]*direction
+                end
+                layer.biases[f] -= α*layer.∇biases[i, j, f, 1]*direction
+            end
+
         elseif optimizer=="Minibatch_GD"
-            Minibatch_GD!(α, layer.padding_input, layer.∇biases, layer.biases, layer.args..., direction)
+            batch_size = size(layer.∇biases, 4)
+            @avxt for i in axes(layer.∇biases, 1), j in axes(layer.∇biases, 2), f in axes(layer.∇biases, 3), b in axes(layer.∇biases, 4)
+                for k₁ in axes(layer.filters, 3), k₂ in axes(layer.filters, 4), c in axes(layer.filters, 2)
+                    layer.filters[f, c, k₁, k₂] -= α*layer.padding_input[(i-1)*x+k₁, (j-1)*y+k₂, c, b]*layer.∇biases[i, j, f, b]/batch_size*direction
+                end
+                layer.biases[f] -= α*layer.∇biases[i, j, f, b]/batch_size*direction
+            end
+
         elseif optimizer=="Adam"
-            Adam!(α, parameters..., layer.padding_input, layer.∇biases, layer.biases, layer.Vdw, layer.Sdw, layer.Vdb, layer.Sdb, layer.args..., direction)
+            t = parameters[1]
+            β₁ = parameters[2]
+            β₂ = parameters[3]
+            ϵ = parameters[4]
+
+            @avxt layer.∇weights .= 0.0f0
+            @avxt layer.∇biases_c .= 0.0f0
+
+            @avxt for i in axes(layer.∇biases, 1), j in axes(layer.∇biases, 2), f in axes(layer.∇biases, 3)
+                for k₁ in axes(layer.filters, 3), k₂ in axes(layer.filters, 4), c in axes(layer.filters, 2)
+                    layer.∇weights[f, c, k₁, k₂] += layer.padding_input[(i-1)*x+k₁, (j-1)*y+k₂, c, 1]*layer.∇biases[i, j, f, 1]
+                end
+                layer.∇biases_c[f] += layer.∇biases[i, j, f, 1]
+            end
+
+            @avxt for i in eachindex(layer.filters)
+                layer.Vdw[i] = β₁*layer.Vdw[i] + (1-β₁)*layer.∇weights[i]
+                layer.Sdw[i] = β₂*layer.Sdw[i] + (1-β₂)*layer.∇weights[i]^2
+                layer.filters[i] -= α*(layer.Vdw[i]/(1-β₁^t))/(sqrt(layer.Sdw[i]/(1-β₂^t))+ϵ)*direction
+            end
+            @avxt for i in eachindex(layer.biases)
+                layer.Vdb[i] = β₁*layer.Vdb[i] + (1-β₁)*layer.∇biases_c[i]
+                layer.Sdb[i] = β₂*layer.Sdb[i] + (1-β₂)*layer.∇biases_c[i]^2
+                layer.biases[i] -= α*(layer.Vdb[i]/(1-β₁^t))/(sqrt(layer.Sdb[i]/(1-β₂^t))+ϵ)*direction
+            end
+
         elseif optimizer=="AdaBelief"
-            AdaBelief!(α, parameters..., layer.padding_input, layer.∇biases, layer.biases, layer.Vdw, layer.Sdw, layer.Vdb, layer.Sdb, layer.args..., direction)
-        end
-    end
+            t = parameters[1]
+            β₁ = parameters[2]
+            β₂ = parameters[3]
+            ϵ = parameters[4]
 
-    function Conv2D_padding!(padding_input::Array{Float32}, input::Array{Float32}, input_filter::Int64, padding::Int64, input2D_size::Tuple, unit_size::Tuple{Int64, Int64}, batch_size::Int64, original_unit::Int64, original_input2D_size::Tuple{Int64, Int64})
-        @avx for b in 1:batch_size, f in 0:input_filter-1, i in 1:original_input2D_size[1], j in 0:original_input2D_size[2]-1
-            padding_input[f*unit_size[2]+(padding+j)*input2D_size[1]+padding+i, b] = input[f*original_unit+j*original_input2D_size[1]+i, b]
-        end
-    end
+            @avxt layer.∇weights .= 0.0f0
+            @avxt layer.∇biases_c .= 0.0f0
 
-    function Conv2D_mul_add!(value::Array{Float32}, input::Array{Float32}, biases::Array{Float32}, filters::Array{Float32}, step_x::Int64, step_y::Int64, input2D_size::Tuple{Int64, Int64}, kernel_size::Tuple{Int64, Int64}, unit_size::Tuple{Int64, Int64}, conv_num_per_row::Int64, conv_num_per_col::Int64)
-        @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1, b in axes(input, 2)
-            for i in 0:unit_size[1]-1
-                index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
-                for j in 1:kernel_size[1]
-                    for k in 1:kernel_size[2]
-                        value[x*unit_size[1]+i+1, b] += filters[x+1,y+1,j,k] * input[y*unit_size[2]+index+k, b]
-                    end
-                    index += input2D_size[2]
+            @avxt for i in axes(layer.∇biases, 1), j in axes(layer.∇biases, 2), f in axes(layer.∇biases, 3)
+                for k₁ in axes(layer.filters, 3), k₂ in axes(layer.filters, 4), c in axes(layer.filters, 2)
+                    layer.∇weights[f, c, k₁, k₂] += layer.padding_input[(i-1)*x+k₁, (j-1)*y+k₂, c, 1]*layer.∇biases[i, j, f, 1]
                 end
+                layer.∇biases_c[f] += layer.∇biases[i, j, f, 1]
             end
-        end
 
-        @avx for x in 0:size(filters, 1)-1, y in 1:unit_size[1], b in axes(value, 2)
-            value[x*unit_size[1]+y, b] += biases[x+1]
-        end
-    end
-
-    function Conv2D_PU!(pre_propagation_units::Array{Float32}, propagation_units::Array{Float32}, ∇biases::Array{Float32}, padding::Int64, filters::Array{Float32}, step_x::Int64, step_y::Int64, input2D_size::Tuple{Int64, Int64}, kernel_size::Tuple{Int64, Int64}, unit_size::Tuple{Int64, Int64}, conv_num_per_row::Int64, conv_num_per_col::Int64, input_filter::Int64, original_input2D_size::Tuple, original_unit::Int64)
-        if padding!=0
-            @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1, b in axes(∇biases, 2)
-                for i in 0:unit_size[1]-1
-                    index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
-                    for j in 1:kernel_size[1]
-                        for k in 1:kernel_size[2]
-                            pre_propagation_units[y*unit_size[2]+index+k, b] += filters[x+1,y+1,j,k] * ∇biases[x*unit_size[1]+i+1, b]
-                        end
-                        index += input2D_size[2]
-                    end
-                end
+            @avxt for i in eachindex(layer.filters)
+                layer.Vdw[i] = β₁*layer.Vdw[i] + (1-β₁)*layer.∇weights[i]
+                layer.Sdw[i] = β₂*layer.Sdw[i] + (1-β₂)*(layer.∇weights[i]-layer.Vdw[i])^2
+                layer.filters[i] -= α*(layer.Vdw[i]/(1-β₁^t))/(sqrt(layer.Sdw[i]/(1-β₂^t))+ϵ)*direction
             end
-            @avx for b in axes(propagation_units, 2), f in 0:input_filter-1, i in 1:original_input2D_size[1], j in 0:original_input2D_size[2]-1
-                propagation_units[f*original_unit+j*original_input2D_size[1]+i, b] = pre_propagation_units[f*unit_size[2]+(padding+j)*input2D_size[1]+padding+i, b]
+            @avxt for i in eachindex(layer.biases)
+                layer.Vdb[i] = β₁*layer.Vdb[i] + (1-β₁)*layer.∇biases_c[i]
+                layer.Sdb[i] = β₂*layer.Sdb[i] + (1-β₂)*(layer.∇biases_c[i]-layer.Vdb[i])^2
+                layer.biases[i] -= α*(layer.Vdb[i]/(1-β₁^t))/(sqrt(layer.Sdb[i]/(1-β₂^t))+ϵ)*direction
             end
-        else
-            @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1, b in axes(∇biases, 2)
-                for i in 0:unit_size[1]-1
-                    index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
-                    for j in 1:kernel_size[1]
-                        for k in 1:kernel_size[2]
-                            propagation_units[y*unit_size[2]+index+k, b] += filters[x+1,y+1,j,k] * ∇biases[x*unit_size[1]+i+1, b]
-                        end
-                        index += input2D_size[2]
-                    end
-                end
-            end
-        end
-    end
-
-    function SGD!(α::Float64, Last_Layer_output::Array{Float32}, ∇biases::Array{Float32}, biases::Array{Float32}, filters::Array{Float32}, step_x::Int64, step_y::Int64, input2D_size::Tuple{Int64, Int64}, kernel_size::Tuple{Int64, Int64}, unit_size::Tuple{Int64, Int64}, conv_num_per_row::Int64, conv_num_per_col::Int64, direction::Int64)
-        @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1
-            for i in 0:unit_size[1]-1
-                index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
-                for j in 1:kernel_size[1]
-                    for k in 1:kernel_size[2]
-                        filters[x+1,y+1,j,k] -= α*∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]*direction
-                    end
-                    index += input2D_size[2]
-                end
-            end
-        end
-
-        @avx for x in 0:size(filters, 1)-1, y in 1:unit_size[1]
-            biases[x+1] -= α*∇biases[x*unit_size[1]+y, 1]*direction
-        end
-    end
-
-    function Minibatch_GD!(α::Float64, Last_Layer_output::Array{Float32}, ∇biases::Array{Float32}, biases::Array{Float32}, filters::Array{Float32}, step_x::Int64, step_y::Int64, input2D_size::Tuple{Int64, Int64}, kernel_size::Tuple{Int64, Int64}, unit_size::Tuple{Int64, Int64}, conv_num_per_row::Int64, conv_num_per_col::Int64, direction::Int64)
-        @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1
-            for i in 0:unit_size[1]-1
-                index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
-                for j in 1:kernel_size[1]
-                    for k in 1:kernel_size[2]
-                        c = 0.0f0
-                        for b in axes(∇biases, 2)
-                            c += ∇biases[x*unit_size[1]+i+1,b]*Last_Layer_output[y*unit_size[2]+index+k,b]
-                        end
-                        filters[x+1,y+1,j,k] -= c*α*direction/size(∇biases, 2)
-                    end
-                    index += input2D_size[2]
-                end
-            end
-        end
-
-        @avx for x in 0:size(filters, 1)-1, y in 1:unit_size[1], b in axes(∇biases, 2)
-            biases[x+1] -= α*∇biases[x*unit_size[1]+y, b]*direction/size(∇biases, 2)
-        end
-    end
-
-    function Adam!(α::Float64, t::Int64, β₁::Float64, β₂::Float64, ϵ::Float64, Last_Layer_output::Array{Float32}, ∇biases::Array{Float32}, biases::Array{Float32}, Vdw::Array{Float32}, Sdw::Array{Float32}, Vdb::Array{Float32}, Sdb::Array{Float32}, filters::Array{Float32}, step_x::Int64, step_y::Int64, input2D_size::Tuple{Int64, Int64}, kernel_size::Tuple{Int64, Int64}, unit_size::Tuple{Int64, Int64}, conv_num_per_row::Int64, conv_num_per_col::Int64, direction::Int64)
-        @avx for a in axes(filters, 1), b in axes(filters, 2), c in axes(filters, 3), d in axes(filters, 4)
-            Vdw[a,b,c,d] *= β₁
-            Sdw[a,b,c,d] *= β₂
-        end
-        @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1
-            for i in 0:unit_size[1]-1
-                index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
-                for j in 1:kernel_size[1]
-                    for k in 1:kernel_size[2]
-                        Vdw[x+1,y+1,j,k] += ∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]*(1-β₁)
-                        Sdw[x+1,y+1,j,k] += (∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1])^2*(1-β₂)
-                    end
-                    index += input2D_size[2]
-                end
-            end
-        end
-        @avx for a in axes(filters, 1), b in axes(filters, 2), c in axes(filters, 3), d in axes(filters, 4)
-            filters[a,b,c,d] -= α*(Vdw[a,b,c,d]/(1-β₁^t))/(sqrt(Sdw[a,b,c,d]/(1-β₂^t))+ϵ)*direction
-        end
-
-        @avx for x in axes(filters, 1)
-            Vdb[x] *= β₁
-            Sdb[x] *= β₂
-        end
-        @avx for x in 0:size(filters, 1)-1, y in 1:unit_size[1]
-            Vdb[x+1] += ∇biases[x*unit_size[1]+y, 1]*(1-β₁)/unit_size[1]
-            Sdb[x+1] += ∇biases[x*unit_size[1]+y, 1]^2*(1-β₂)/unit_size[1]
-        end
-        @avx for x in axes(filters, 1)
-            biases[x] -= α*(Vdb[x]/(1-β₁^t))/(sqrt(Sdb[x]/(1-β₂^t))+ϵ)*direction
-        end
-    end
-
-    function AdaBelief!(α::Float64, t::Int64, β₁::Float64, β₂::Float64, ϵ::Float64, Last_Layer_output::Array{Float32}, ∇biases::Array{Float32}, biases::Array{Float32}, Vdw::Array{Float32}, Sdw::Array{Float32}, Vdb::Array{Float32}, Sdb::Array{Float32}, filters::Array{Float32}, step_x::Int64, step_y::Int64, input2D_size::Tuple{Int64, Int64}, kernel_size::Tuple{Int64, Int64}, unit_size::Tuple{Int64, Int64}, conv_num_per_row::Int64, conv_num_per_col::Int64, direction::Int64)
-        @avx for a in axes(filters, 1), b in axes(filters, 2), c in axes(filters, 3), d in axes(filters, 4)
-            Vdw[a,b,c,d] *= β₁
-            Sdw[a,b,c,d] *= β₂
-            Sdw[a,b,c,d] += ϵ
-        end
-        @avx for x in 0:size(filters, 1)-1, y in 0:size(filters, 2)-1
-            for i in 0:unit_size[1]-1
-                index = step_x*(i%conv_num_per_row) + input2D_size[2]*step_y*(i÷conv_num_per_row)
-                for j in 1:kernel_size[1]
-                    for k in 1:kernel_size[2]
-                        Vdw[x+1,y+1,j,k] += ∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]*(1-β₁)
-                        Sdw[x+1,y+1,j,k] += (∇biases[x*unit_size[1]+i+1,1]*Last_Layer_output[y*unit_size[2]+index+k,1]-Vdw[x+1,y+1,j,k])^2*(1-β₂)
-                    end
-                    index += input2D_size[2]
-                end
-            end
-        end
-        @avx for a in axes(filters, 1), b in axes(filters, 2), c in axes(filters, 3), d in axes(filters, 4)
-            filters[a,b,c,d] -= α*(Vdw[a,b,c,d]/(1-β₁^t))/(sqrt(Sdw[a,b,c,d]/(1-β₂^t))+ϵ)*direction
-        end
-
-        @avx for x in axes(filters, 1)
-            Vdb[x] *= β₁
-            Sdb[x] *= β₂
-            Sdb[x] += ϵ
-        end
-        @avx for x in 0:size(filters, 1)-1, y in 1:unit_size[1]
-            Vdb[x+1] += ∇biases[x*unit_size[1]+y, 1]*(1-β₁)/unit_size[1]
-            Sdb[x+1] += (∇biases[x*unit_size[1]+y, 1]-Vdb[x+1])^2*(1-β₂)/unit_size[1]
-        end
-        @avx for x in axes(filters, 1)
-            biases[x] -= α*(Vdb[x]/(1-β₁^t))/(sqrt(Sdb[x]/(1-β₂^t))+ϵ)*direction
         end
     end
 
     function save_Conv2D(layer::Conv2D, file::Any, id::Int64)
         write(file, string(id), "Conv2D")
-        write(file, string(id)*"input_size", layer.input_size)
-        write(file, string(id)*"filters", layer.filters)
-        write(file, string(id)*"unit_size", collect(layer.unit_size))
+        write(file, string(id)*"input_shape", collect(layer.input_shape))
+        write(file, string(id)*"filter", layer.filter)
         write(file, string(id)*"padding", layer.padding)
-        write(file, string(id)*"input2D_size", collect(layer.input2D_size))
-        write(file, string(id)*"step_x", layer.step_x)
-        write(file, string(id)*"step_y", layer.step_y)
+        write(file, string(id)*"kernel_size", collect(layer.kernel_size))
+        write(file, string(id)*"strides", collect(layer.strides))
         write(file, string(id)*"activation_function", layer.activation_function.get_name())
+
+        write(file, string(id)*"filters", layer.filters)
+        write(file, string(id)*"biases", layer.biases)
     end
 
     function load_Conv2D(layer::Conv2D, file::Any, id::Int64)
-        layer.input_size = read(file, string(id)*"input_size")
         layer.filters = read(file, string(id)*"filters")
-        layer.unit_size = Tuple(read(file, string(id)*"unit_size"))
-        layer.kernel_size = (size(layer.filters,3), size(layer.filters,4))
-        layer.padding = read(file, string(id)*"padding")
-        layer.input2D_size = Tuple(read(file, string(id)*"input2D_size"))
-        layer.step_x = read(file, string(id)*"step_x")
-        layer.step_y = read(file, string(id)*"step_y")
-        layer.Vdw = zeros(Float32, size(layer.filters))
-        layer.Sdw = zeros(Float32, size(layer.filters))
-        kernel_size = layer.kernel_size
-        layer.conv_num_per_row = (layer.input2D_size[2]-kernel_size[2])÷layer.step_x+1
-        layer.conv_num_per_col = (layer.input2D_size[1]-kernel_size[1])÷layer.step_y+1
-        layer.layer_size = layer.conv_num_per_row*layer.conv_num_per_col*size(layer.filters, 1)
-        layer.original_input2D_size = (layer.input2D_size[1]-2*layer.padding, layer.input2D_size[2]-2*layer.padding)
+        layer.biases = read(file, string(id)*"biases")
+    end
+
+    function get_args(file::Any, id::Int64)
+        input_shape = tuple(read(file, string(id)*"input_shape")...)
+        filter = read(file, string(id)*"filter")
+        padding = read(file, string(id)*"padding")
+        kernel_size = tuple(read(file, string(id)*"kernel_size")...)
+        strides = tuple(read(file, string(id)*"strides")...)
+        return (input_shape=input_shape, filter=filter, padding=padding, kernel_size=kernel_size, strides=strides)
     end
 end
-
-# Source: https://stackoverflow.com/questions/16798888/2-d-convolution-as-a-matrix-matrix-multiplication
