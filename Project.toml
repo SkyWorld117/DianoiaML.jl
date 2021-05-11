@@ -1,13 +1,15 @@
-name = "YisyAIFramework"
-uuid = "1833fadb-d4a3-4bdc-92b3-7dbe365d2b7d"
+name = "Dianoia"
+uuid = "0bf644f3-9992-48f5-8d6e-b7168dcf6b06"
 authors = ["Yi Zhu, @SkyWord117"]
-version = "0.3.10"
+version = "0.4.0"
 
 [deps]
+CheapThreads = "b630d9fa-e28e-4980-896d-83ce5e2106b2"
 HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
 
 [compat]
 HDF5 = "0.15.4"
-LoopVectorization = "0.11.2"
-julia = "1.5.3"
+LoopVectorization = "0.12.18"
+julia = "1.6.1"
