@@ -1,6 +1,6 @@
 # DianoiaML
 
-DianoiaML is an experimental Keras-like deep learning framework. It should work correctly, however, please reconsider if you are preparing to use it in serious researches. 
+DianoiaML is an experimental Keras-like deep learning framework. 
 
 The user guide and the To-Do list can be found [here](https://github.com/SkyWorld117/YisyAIFramework.jl/wiki). 
 
