@@ -1,5 +1,12 @@
 # Update Log
 
+### Update 0.4.0 - 05.14.2021
+- Rewrote the structure for better performence and more logical principles. 
+- Added **Flatten** and **Constructive** as layers to reform data shape. 
+- Updated **model management**. 
+- Rewrote UI and simplified it. 
+- Renamed to **DianoiaML.jl**. 
+
 ### Update 0.3.10 - 03.28.2021
 - Support **Genetic Algorithm** officially. 
 - **BLAS** is now running with a single thread in default. 
