@@ -1,5 +1,5 @@
 module Minibatch_GD
-    using LoopVectorization, CheapThreads
+    using LoopVectorization, Polyester
 
     function fit(;model::Any, input_data::Array{Float32}, output_data::Array{Float32}, loss_function::Any, monitor::Any, α::Float64=0.01, epochs::Int64=20, batch::Real=32, mini_batch::Int64=5)
         model.initialize(model, mini_batch)

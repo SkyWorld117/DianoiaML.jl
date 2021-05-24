@@ -1,5 +1,5 @@
 module GA
-    using CheapThreads, LoopVectorization
+    using Polyester, LoopVectorization
 
     function fit(;models::Array, input_data::Array{Float32}, output_data::Array{Float32}, loss_function::Any, monitor::Any, α::Float64=0.01, num_copy::Int64, epochs::Int64=20, batch::Real=32, mini_batch::Int64=5)
         gene_pool = length(models)

@@ -37,7 +37,7 @@ module Conv2DM
         pre_δ::Array{Float32}
         δ::Array{Float32}
 
-        function Conv2D(;input_shape::Tuple, filter::Int64, padding::Int64=0, kernel_size::Tuple{Int64, Int64}, strides::Tuple{Int64, Int64}=(1,1), activation_function::Module, randomization::Bool=true, reload::Bool=false)
+        function Conv2D(;input_shape::Tuple, filter::Int64, padding::Int64=0, kernel_size::Tuple{Int64, Int64}, strides::Tuple{Int64, Int64}=(1,1), activation_function::Module, randomization::Bool=true)
             conv_num_per_col = (input_shape[1]+2*padding-kernel_size[1])÷strides[1]+1
             conv_num_per_row = (input_shape[2]+2*padding-kernel_size[2])÷strides[2]+1
             output_shape = (conv_num_per_col, conv_num_per_row, filter)

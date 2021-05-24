@@ -1,5 +1,5 @@
 module MaxPooling2DM
-    using LoopVectorization, CheapThreads
+    using LoopVectorization, Polyester
 
     mutable struct MaxPooling2D
         save_layer::Any
@@ -17,11 +17,7 @@ module MaxPooling2DM
         output::Array{Float32}
         δ::Array{Float32}
 
-        function MaxPooling2D(;input_shape::Tuple, pool_size::Tuple{Int64, Int64}, strides::Tuple{Int64,Int64}=(pool_size[1],pool_size[2]), reload::Bool=false)
-            if reload
-                return new(save_MaxPooling2D, load_MaxPooling2D, activate_MaxPooling2D, init_MaxPooling2D, update_MaxPooling2D)
-            end
-
+        function MaxPooling2D(;input_shape::Tuple, pool_size::Tuple{Int64, Int64}, strides::Tuple{Int64,Int64}=(pool_size[1],pool_size[2]))
             pool_num_per_col = (input_shape[1]-pool_size[1])÷strides[1]+1
             pool_num_per_row = (input_shape[2]-pool_size[2])÷strides[2]+1
             output_shape = (pool_num_per_col, pool_num_per_row, input_shape[3])
@@ -48,16 +44,12 @@ module MaxPooling2DM
             layer.output[i, j, c, b] = s
         end=#
 
+        # Waiting for the next update of Polyester
         @batch for i in axes(layer.output, 1), j in axes(layer.output, 2), c in axes(layer.output, 3), b in axes(layer.output, 4)
-            s = -Inf32
-            for p₁ in 1:layer.pool_size[1], p₂ in 1:layer.pool_size[2]
-                if input[(i-1)*x+p₁, (j-1)*y+p₂, c, b]>=s
-                    s = input[(i-1)*x+p₁, (j-1)*y+p₂, c, b]
-                    layer.index[1, i, j, c, b] = (i-1)*x+p₁
-                    layer.index[2, i, j, c, b] = (j-1)*y+p₂
-                end
-            end
-            layer.output[i, j, c, b] = s
+            temp = findmax(view(input, (i-1)*x+1:(i-1)*x+layer.pool_size[1], (j-1)*y+1:(j-1)*y+layer.pool_size[2], c, b))
+            layer.output[i, j, c, b] = temp[1]
+            layer.index[1, i, j, c, b] = (i-1)*x+temp[2][1]
+            layer.index[2, i, j, c, b] = (j-1)*y+temp[2][2]
         end
     end
 
