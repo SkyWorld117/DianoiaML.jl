@@ -1,5 +1,9 @@
 # Update Log
 
+### Update 0.4.1 - 05.24.2021
+- Updated dependencies. 
+- Improved the speed of **MaxPooling2D** before it hangs :(. 
+
 ### Update 0.4.0 - 05.14.2021
 - Rewrote the structure for better performence and more logical principles. 
 - Added **Flatten** and **Constructive** as layers to reform data shape. 
