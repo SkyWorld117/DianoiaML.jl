@@ -18,11 +18,7 @@ module UpSampling2DM
         ∇biases::Array{Float32}
         δ::Array{Float32}
 
-        function UpSampling2D(;input_shape::Tuple, size::Tuple{Int64, Int64}, activation_function::Module, reload::Bool=false)
-            if reload
-                return new(save_UpSampling2D, load_UpSampling2D, activate_UpSampling2D, init_UpSampling2D, update_UpSampling2D)
-            end
-
+        function UpSampling2D(;input_shape::Tuple, size::Tuple{Int64, Int64}, activation_function::Module)
             output_shape = (input_shape[1]*size[1], input_shape[2]*size[2], input_shape[3])
             new(save_UpSampling2D, load_UpSampling2D, activate_UpSampling2D, init_UpSampling2D, update_UpSampling2D, input_shape, output_shape, size, activation_function)
         end

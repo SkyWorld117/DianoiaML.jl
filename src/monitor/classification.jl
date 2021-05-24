@@ -1,5 +1,5 @@
 module Classification
-    using CheapThreads
+    using Polyester
 
     function func(output_matrix::Array{Float32}, sample_matrix::Array{Float32})
         loss = zeros(Int64, size(output_matrix)[2])
