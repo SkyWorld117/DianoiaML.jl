@@ -19,7 +19,7 @@ Environment: Julia 1.6.1
   - Constructive
   - Dense
   - Convolutional2D
-  - MaxPooling2D **(Not recommended to use for now due to a bug caused by unkown reasons)**
+  - MaxPooling2D
   - UpSampling2D
 - Activation Function
   - ReLU
@@ -60,8 +60,10 @@ test_x, test_y = MNIST.testdata()
 dict = Dict{Int64, Int64}(1=>1, 2=>2, 3=>3, 4=>4, 5=>5, 6=>6, 7=>7, 8=>8, 9=>9, 0=>10)
 
 model = Sequential()
-model.add_layer(model, Conv2D; filter=16, input_shape=(28,28,1), kernel_size=(3,3), activation_function=ReLU)
-model.add_layer(model, Conv2D; filter=32, kernel_size=(3,3), activation_function=ReLU)
+model.add_layer(model, Conv2D; filter=32, input_shape=(28,28,1), kernel_size=(3,3), activation_function=ReLU)
+model.add_layer(model, MaxPooling2D; pool_size=(2,2))
+model.add_layer(model, Conv2D; filter=64, kernel_size=(3,3), activation_function=ReLU)
+model.add_layer(model, MaxPooling2D; pool_size=(2,2))
 model.add_layer(model, Flatten;)
 model.add_layer(model, Dense; layer_size=128, activation_function=ReLU)
 model.add_layer(model, Dense; layer_size=10, activation_function=Softmax_CEL)
@@ -102,6 +104,7 @@ model.add_Glayer(model, Constructive; shape=(28,28,1))
 
 model.add_Dlayer(model, Conv2D; filter=16, kernel_size=(3,3), activation_function=ReLU)
 model.add_Dlayer(model, Conv2D; filter=32, kernel_size=(3,3), activation_function=ReLU)
+model.add_Dlayer(model, MaxPooling2D; kernel_size=(2,2), activation_function=None)
 model.add_Dlayer(model, Flatten;)
 model.add_Dlayer(model, Dense; layer_size=128, activation_function=ReLU)
 model.add_Dlayer(model, Dense; layer_size=64, activation_function=ReLU)
