@@ -1,5 +1,8 @@
 # Update Log
 
+### Update 0.4.2 - 05.25.2021
+- Updated dependencies that solves the problem of **MaxPooling**. 
+
 ### Update 0.4.1 - 05.24.2021
 - Updated dependencies. 
 - Improved the speed of **MaxPooling2D** before it hangs :(. 
