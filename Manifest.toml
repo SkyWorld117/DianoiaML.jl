@@ -179,9 +179,9 @@ uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 
 [[Polyester]]
 deps = ["ArrayInterface", "IfElse", "Requires", "Static", "StrideArraysCore", "ThreadingUtilities", "VectorizationBase"]
-git-tree-sha1 = "9d9dcd0cd83d33966afd31089ced4d75aa379cbc"
+git-tree-sha1 = "04a03d3f8ae906f4196b9085ed51506c4b466340"
 uuid = "f517fe37-dbe3-4b94-8317-1923a5111588"
-version = "0.3.0"
+version = "0.3.1"
 
 [[Preferences]]
 deps = ["TOML"]
@@ -260,9 +260,9 @@ uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [[ThreadingUtilities]]
 deps = ["VectorizationBase"]
-git-tree-sha1 = "d9117912ec78dbba3294fcb2962b6826be6107a5"
+git-tree-sha1 = "28f4295cd761ce98db2b5f8c1fe6e5c89561efbe"
 uuid = "8290d209-cae3-49c0-8002-c8c24d57dab5"
-version = "0.4.2"
+version = "0.4.4"
 
 [[UUIDs]]
 deps = ["Random", "SHA"]
