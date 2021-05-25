@@ -44,7 +44,6 @@ module MaxPooling2DM
             layer.output[i, j, c, b] = s
         end=#
 
-        # Waiting for the next update of Polyester
         @batch for i in axes(layer.output, 1), j in axes(layer.output, 2), c in axes(layer.output, 3), b in axes(layer.output, 4)
             temp = findmax(view(input, (i-1)*x+1:(i-1)*x+layer.pool_size[1], (j-1)*y+1:(j-1)*y+layer.pool_size[2], c, b))
             layer.output[i, j, c, b] = temp[1]
