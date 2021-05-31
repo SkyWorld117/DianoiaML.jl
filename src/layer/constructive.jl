@@ -14,17 +14,17 @@ module ConstructiveM
         output::Array{Float32}
         δ::Array{Float32}
 
-        function Constructive(;input_shape, shape)
+        function Constructive(;input_shape::Tuple, shape::Tuple)
             new(save_Constructive, load_Constructive, activate_Constructive, init_Constructive, update_Constructive, input_shape, shape)
         end
     end
 
-    function init_Constructive(layer::Constructive, mini_batch)
+    function init_Constructive(layer::Constructive, mini_batch::Int64)
         layer.output = zeros(Float32, layer.output_shape..., mini_batch)
         layer.δ = zeros(Float32, layer.input_shape..., mini_batch)
     end
 
-    function activate_Constructive(layer::Constructive, input)
+    function activate_Constructive(layer::Constructive, input::Array{Float32})
         @avxt for i in eachindex(layer.output)
             layer.output[i] = input[i]
         end

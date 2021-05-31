@@ -14,7 +14,7 @@ module FlattenM
         output::Array{Float32}
         δ::Array{Float32}
 
-        function Flatten(;input_shape)
+        function Flatten(;input_shape::Tuple)
             s = 1
             for i in input_shape
                 s *= i
@@ -25,12 +25,12 @@ module FlattenM
         end
     end
 
-    function init_Flatten(layer::Flatten, mini_batch)
+    function init_Flatten(layer::Flatten, mini_batch::Int64)
         layer.output = zeros(Float32, layer.output_shape..., mini_batch)
         layer.δ = zeros(Float32, layer.input_shape..., mini_batch)
     end
 
-    function activate_Flatten(layer::Flatten, input)
+    function activate_Flatten(layer::Flatten, input::Array{Float32})
         @avxt for i in eachindex(input)
             layer.output[i] = input[i]
         end

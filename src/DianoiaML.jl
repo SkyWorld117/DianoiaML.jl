@@ -38,6 +38,9 @@ module DianoiaML
     include("./layer/constructive.jl")
     using .ConstructiveM:Constructive
     export Constructive
+    include("./layer/dropout.jl")
+    using .DropoutM:Dropout
+    export Dropout
 
     include("./network/sequential.jl")
     using .sequential:Sequential, Hidden_Output_Layer
