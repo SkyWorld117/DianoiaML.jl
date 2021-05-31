@@ -1,5 +1,8 @@
 # Update Log
 
+### Update 0.4.3 - 05.31.2021
+- Added **Dropout** as a layer. 
+
 ### Update 0.4.2 - 05.25.2021
 - Updated dependencies that solves the problem of **MaxPooling**. 
 
