@@ -41,6 +41,9 @@ module DianoiaML
     include("./layer/dropout.jl")
     using .DropoutM:Dropout
     export Dropout
+    include("./layer/tconv2d.jl")
+    using .TConv2DM:TConv2D
+    export TConv2D
 
     include("./network/sequential.jl")
     using .sequential:Sequential, Hidden_Output_Layer
