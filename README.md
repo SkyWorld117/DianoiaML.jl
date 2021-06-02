@@ -21,6 +21,7 @@ Environment: Julia 1.6.1
   - Convolutional2D
   - MaxPooling2D
   - UpSampling2D
+  - Transposed Convolutional2D
   - Dropout
 - Activation Function
   - ReLU
