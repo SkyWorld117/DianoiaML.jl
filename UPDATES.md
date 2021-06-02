@@ -1,5 +1,8 @@
 # Update Log
 
+### Update 0.4.4 - 06.02.2021
+- Added **TConv2D** as a layer. 
+
 ### Update 0.4.3 - 05.31.2021
 - Added **Dropout** as a layer. 
 
