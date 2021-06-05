@@ -41,18 +41,18 @@ module DropoutM
         end
     end
 
-    function save_Dropout(layer::Dropout, file::Any, id::Int64)
-        write(file, string(id), "Dropout")
-        write(file, string(id)*"input_shape", collect(layer.input_shape))
-        write(file, string(id)*"rate", layer.rate)
+    function save_Dropout(layer::Dropout, file::Any, id::String)
+        write(file, id, "Dropout")
+        write(file, id*"input_shape", collect(layer.input_shape))
+        write(file, id*"rate", layer.rate)
     end
 
-    function load_Dropout(layer::Dropout, file::Any, id::Int64)
+    function load_Dropout(layer::Dropout, file::Any, id::String)
     end
 
-    function get_args(file::Any, id::Int64)
-        input_shape = tuple(read(file, string(id)*"input_shape")...)
-        rate = read(file, string(id)*"rate")
+    function get_args(file::Any, id::String)
+        input_shape = tuple(read(file, id*"input_shape")...)
+        rate = read(file, id*"rate")
         return (input_shape=input_shape, rate=rate)
     end
 end

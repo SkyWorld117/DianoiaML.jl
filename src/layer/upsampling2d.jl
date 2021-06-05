@@ -54,19 +54,19 @@ module UpSampling2DM
         end
     end
 
-    function save_UpSampling2D(layer::UpSampling2D, file::Any, id::Int64)
-        write(file, string(id), "UpSampling2D")
-        write(file, string(id)*"input_shape", collect(layer.input_shape))
-        write(file, string(id)*"size", collect(layer.size))
-        write(file, string(id)*"activation_function", layer.activation_function.get_name())
+    function save_UpSampling2D(layer::UpSampling2D, file::Any, id::String)
+        write(file, id, "UpSampling2D")
+        write(file, id*"input_shape", collect(layer.input_shape))
+        write(file, id*"size", collect(layer.size))
+        write(file, id*"activation_function", layer.activation_function.get_name())
     end
 
-    function load_UpSampling2D(layer::UpSampling2D, file::Any, id::Int64)
+    function load_UpSampling2D(layer::UpSampling2D, file::Any, id::String)
     end
 
-    function get_args(file::Any, id::Int64)
-        input_shape = tuple(read(file, string(id)*"input_shape")...)
-        size = tuple(read(file, string(id)*"size")...)
+    function get_args(file::Any, id::String)
+        input_shape = tuple(read(file, id*"input_shape")...)
+        size = tuple(read(file, id*"size")...)
         return (input_shape=input_shape, size=size)
     end
 end

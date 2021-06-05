@@ -1,5 +1,5 @@
 module DianoiaML
-    using LinearAlgebra
+    using LoopVectorization, LinearAlgebra
     BLAS.set_num_threads(1)
 
     include("./activation_function/relu.jl")
@@ -44,6 +44,9 @@ module DianoiaML
     include("./layer/tconv2d.jl")
     using .TConv2DM:TConv2D
     export TConv2D
+    include("./layer/residual.jl")
+    using .ResidualM:Residual
+    export Residual
 
     include("./network/sequential.jl")
     using .sequential:Sequential, Hidden_Output_Layer
@@ -51,6 +54,9 @@ module DianoiaML
     include("./network/gan.jl")
     using .gan:GAN
     export GAN
+    include("./network/resnet.jl")
+    using .resnet:ResNet
+    export ResNet
 
     include("./loss_function/categorical_cross_entropy_loss.jl")
     using .Categorical_Cross_Entropy_Loss

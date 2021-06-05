@@ -1,5 +1,9 @@
 # Update Log
 
+### Update 0.4.5 - 06.05.2021
+- Added **ResNet** as a network type. 
+- Added **Residual** as a layer to load **ResNet**. 
+
 ### Update 0.4.4 - 06.02.2021
 - Added **TConv2D** as a layer. 
 

@@ -144,24 +144,24 @@ module DenseM
         end
     end
 
-    function save_Dense(layer::Dense, file::Any, id::Int64)
-        write(file, string(id), "Dense")
-        write(file, string(id)*"input_shape", collect(layer.input_shape))
-        write(file, string(id)*"layer_size", layer.layer_size)
-        write(file, string(id)*"activation_function", layer.activation_function.get_name())
+    function save_Dense(layer::Dense, file::Any, id::String)
+        write(file, id, "Dense")
+        write(file, id*"input_shape", collect(layer.input_shape))
+        write(file, id*"layer_size", layer.layer_size)
+        write(file, id*"activation_function", layer.activation_function.get_name())
 
-        write(file, string(id)*"weights", layer.weights)
-        write(file, string(id)*"biases", layer.biases)
+        write(file, id*"weights", layer.weights)
+        write(file, id*"biases", layer.biases)
     end
 
-    function load_Dense(layer::Dense, file::Any, id::Int64)
-        layer.weights = read(file, string(id)*"weights")
-        layer.biases = read(file, string(id)*"biases")
+    function load_Dense(layer::Dense, file::Any, id::String)
+        layer.weights = read(file, id*"weights")
+        layer.biases = read(file, id*"biases")
     end
 
-    function get_args(file::Any, id::Int64)
-        input_shape = tuple(read(file, string(id)*"input_shape")...)
-        layer_size = read(file, string(id)*"layer_size")
+    function get_args(file::Any, id::String)
+        input_shape = tuple(read(file, id*"input_shape")...)
+        layer_size = read(file, id*"layer_size")
         return (input_shape=input_shape, layer_size=layer_size)
     end
 end

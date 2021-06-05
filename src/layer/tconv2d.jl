@@ -176,30 +176,30 @@ module TConv2DM
         end
     end
 
-    function save_TConv2D(layer::TConv2D, file::Any, id::Int64)
-        write(file, string(id), "TConv2D")
-        write(file, string(id)*"input_shape", collect(layer.input_shape))
-        write(file, string(id)*"filter", layer.filter)
-        write(file, string(id)*"padding", layer.padding)
-        write(file, string(id)*"kernel_size", collect(layer.kernel_size))
-        write(file, string(id)*"strides", collect(layer.strides))
-        write(file, string(id)*"activation_function", layer.activation_function.get_name())
+    function save_TConv2D(layer::TConv2D, file::Any, id::String)
+        write(file, id, "TConv2D")
+        write(file, id*"input_shape", collect(layer.input_shape))
+        write(file, id*"filter", layer.filter)
+        write(file, id*"padding", layer.padding)
+        write(file, id*"kernel_size", collect(layer.kernel_size))
+        write(file, id*"strides", collect(layer.strides))
+        write(file, id*"activation_function", layer.activation_function.get_name())
 
-        write(file, string(id)*"filters", layer.filters)
-        write(file, string(id)*"biases", layer.biases)
+        write(file, id*"filters", layer.filters)
+        write(file, id*"biases", layer.biases)
     end
 
-    function load_TConv2D(layer::TConv2D, file::Any, id::Int64)
-        layer.filters = read(file, string(id)*"filters")
-        layer.biases = read(file, string(id)*"biases")
+    function load_TConv2D(layer::TConv2D, file::Any, id::String)
+        layer.filters = read(file, id*"filters")
+        layer.biases = read(file, id*"biases")
     end
 
-    function get_args(file::Any, id::Int64)
-        input_shape = tuple(read(file, string(id)*"input_shape")...)
-        filter = read(file, string(id)*"filter")
-        padding = read(file, string(id)*"padding")
-        kernel_size = tuple(read(file, string(id)*"kernel_size")...)
-        strides = tuple(read(file, string(id)*"strides")...)
+    function get_args(file::Any, id::String)
+        input_shape = tuple(read(file, id*"input_shape")...)
+        filter = read(file, id*"filter")
+        padding = read(file, id*"padding")
+        kernel_size = tuple(read(file, id*"kernel_size")...)
+        strides = tuple(read(file, id*"strides")...)
         return (input_shape=input_shape, filter=filter, padding=padding, kernel_size=kernel_size, strides=strides)
     end
 end

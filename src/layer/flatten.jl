@@ -42,16 +42,16 @@ module FlattenM
         end
     end
 
-    function save_Flatten(layer::Flatten, file::Any, id::Int64)
-        write(file, string(id), "Flatten")
-        write(file, string(id)*"input_shape", collect(layer.input_shape))
+    function save_Flatten(layer::Flatten, file::Any, id::String)
+        write(file, id, "Flatten")
+        write(file, id*"input_shape", collect(layer.input_shape))
     end
 
-    function load_Flatten(layer::Flatten, file::Any, id::Int64)
+    function load_Flatten(layer::Flatten, file::Any, id::String)
     end
 
-    function get_args(file::Any, id::Int64)
-        input_shape = tuple(read(file, string(id)*"input_shape")...)
+    function get_args(file::Any, id::String)
+        input_shape = tuple(read(file, id*"input_shape")...)
         return (input_shape=input_shape,)
     end
 end

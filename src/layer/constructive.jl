@@ -36,18 +36,18 @@ module ConstructiveM
         end
     end
 
-    function save_Constructive(layer::Constructive, file::Any, id::Int64)
-        write(file, string(id), "Constructive")
-        write(file, string(id)*"input_shape", collect(layer.input_shape))
-        write(file, string(id)*"shape", collect(layer.output_shape))
+    function save_Constructive(layer::Constructive, file::Any, id::String)
+        write(file, id, "Constructive")
+        write(file, id*"input_shape", collect(layer.input_shape))
+        write(file, id*"shape", collect(layer.output_shape))
     end
 
-    function load_Constructive(layer::Constructive, file::Any, id::Int64)
+    function load_Constructive(layer::Constructive, file::Any, id::String)
     end
 
-    function get_args(file::Any, id::Int64)
-        input_shape = tuple(read(file, string(id)*"input_shape")...)
-        shape = tuple(read(file, string(id)*"shape")...)
+    function get_args(file::Any, id::String)
+        input_shape = tuple(read(file, id*"input_shape")...)
+        shape = tuple(read(file, id*"shape")...)
         return (input_shape=input_shape, shape=shape)
     end
 end

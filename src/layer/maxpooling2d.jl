@@ -33,7 +33,7 @@ module MaxPooling2DM
 
     function activate_MaxPooling2D(layer::MaxPooling2D, input::Array{Float32})
         x, y = layer.strides
-        # Waiting for the next update of LoopVectorization
+        # Waiting for the update of LoopVectorization
         #=@avxt for i in axes(layer.output, 1), j in axes(layer.output, 2), c in axes(layer.output, 3), b in axes(layer.output, 4)
             s = -Inf32
             for p₁ in 1:layer.pool_size[1], p₂ in 1:layer.pool_size[2]
@@ -59,20 +59,20 @@ module MaxPooling2DM
         end
     end
 
-    function save_MaxPooling2D(layer::MaxPooling2D, file::Any, id::Int64)
-        write(file, string(id), "MaxPooling2D")
-        write(file, string(id)*"input_shape", collect(layer.input_shape))
-        write(file, string(id)*"pool_size", collect(layer.pool_size))
-        write(file, string(id)*"strides", collect(layer.strides))
+    function save_MaxPooling2D(layer::MaxPooling2D, file::Any, id::String)
+        write(file, id, "MaxPooling2D")
+        write(file, id*"input_shape", collect(layer.input_shape))
+        write(file, id*"pool_size", collect(layer.pool_size))
+        write(file, id*"strides", collect(layer.strides))
     end
 
-    function load_MaxPooling2D(layer::MaxPooling2D, file::Any, id::Int64)
+    function load_MaxPooling2D(layer::MaxPooling2D, file::Any, id::String)
     end
 
-    function get_args(file::Any, id::Int64)
-        input_shape = tuple(read(file, string(id)*"input_shape")...)
-        pool_size = tuple(read(file, string(id)*"pool_size")...)
-        strides = tuple(read(file, string(id)*"strides")...)
+    function get_args(file::Any, id::String)
+        input_shape = tuple(read(file, id*"input_shape")...)
+        pool_size = tuple(read(file, id*"pool_size")...)
+        strides = tuple(read(file, id*"strides")...)
         return (input_shape=input_shape, pool_size=pool_size, strides=strides)
     end
 end
