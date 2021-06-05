@@ -14,6 +14,7 @@ Environment: Julia 1.6.1
 - Network
   - Sequential
   - GAN
+  - ResNet
 - Layer
   - Flatten
   - Constructive
@@ -23,6 +24,7 @@ Environment: Julia 1.6.1
   - UpSampling2D
   - Transposed Convolutional2D
   - Dropout
+  - Residual
 - Activation Function
   - ReLU
   - Sigmoid
