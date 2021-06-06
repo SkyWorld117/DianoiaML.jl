@@ -1,5 +1,9 @@
 # Update Log
 
+### Update 0.4.6 - 06.06.2021
+- Fixed **Minibatch_GD** and **GA**. 
+- Slightly Optimized **GA**. 
+
 ### Update 0.4.5 - 06.05.2021
 - Added **ResNet** as a network type. 
 - Added **Residual** as a layer to load **ResNet**. 

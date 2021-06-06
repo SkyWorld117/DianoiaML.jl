@@ -1,9 +1,12 @@
 module GA
-    using Polyester, LoopVectorization
+    using Polyester, LoopVectorization, VectorizedRNG
 
-    function fit(;models::Array, input_data::Array{Float32}, output_data::Array{Float32}, loss_function::Any, monitor::Any, α::Float64=0.01, num_copy::Int64, epochs::Int64=20, batch::Real=32, mini_batch::Int64=5)
+    function fit(;models::Array, input_data::Array{Float32}, output_data::Array{Float32}, monitor::Any, α::Float64=0.01, num_copy::Int64, epochs::Int64=20, batch::Real=32, mini_batch::Int64=5)
         gene_pool = length(models)
-        batch_size = ceil(Int64, size(input_data)[end]/batch)*mini_batch
+        input_shape = models[1].layers[2].input_shape
+        output_shape = models[1].layers[end].output_shape
+        examples = size(input_data)[end]
+        batch_size = ceil(Int64, examples/batch)*mini_batch
         current_input_data = zeros(Float32, input_shape..., mini_batch)
         current_output_data = zeros(Float32, output_shape..., mini_batch)
 
@@ -15,11 +18,12 @@ module GA
             print("Epoch ", e, "\n[")
             loss = 0
             losses = zeros(Float32, gene_pool)
+            weights = zeros(Float32, gene_pool)
             @time begin
 
                 for t in 1:mini_batch:batch_size-mini_batch+1
                     @batch for i in 1:mini_batch
-                        index = rand(1:size(input_data)[end])
+                        index = rand(1:examples)
                         selectdim(current_input_data, length(input_shape)+1, i) .= selectdim(input_data, length(input_shape)+1, index)
                         selectdim(current_output_data, length(output_shape)+1, i) .= selectdim(output_data, length(output_shape)+1, index)
                     end
@@ -28,14 +32,14 @@ module GA
                         print("=")
                     end
 
-                    for i in 1:gene_pool
+                    @time for i in 1:gene_pool
                         models[i].activate(models[i], current_input_data)
                         losses[i] = monitor.func(models[i].layers[end-1].output, current_output_data)
                     end
 
-                    for i in 1:gene_pool-num_copy
-                        #recomutation!(models[argmax(losses)], models[rand(1:gene_pool)], models[rand(1:gene_pool)], α, t, batch_size-mini_batch+1)
-                        recomutation!(models[argmax(losses)], models[sample(losses)], models[sample(losses)], α, t, batch_size-mini_batch+1)
+                    @time for i in 1:gene_pool-num_copy
+                        get_weights!(weights, losses)
+                        recomutation!(models[argmax(losses)], models[sample(weights)], models[sample(weights)], α, t, batch_size-mini_batch+1)
                         losses[argmax(losses)] = Inf32
                     end
 
@@ -46,23 +50,17 @@ module GA
         end
     end
 
-    function sample(losses)
-        weights = Array{Float32, 1}(undef, length(losses))
-        s = 0.0f0
-        for i in 1:length(losses)
-            if losses[i] != Inf32
-                s += losses[i]
-            end
-        end
-        for i in 1:length(losses)
-            weights[i] = s/losses[i]
+    function get_weights!(weights::Array{Float32}, losses::Array{Float32})
+        @avxt for i in eachindex(losses)
+            weights[i] = ifelse(losses[i]!=Inf32, 1/losses[i], 0.0f0)
         end
         s = sum(weights)
-        @avx for i in 1:length(losses)
-            weights[i] /= s
-        end
+        @avxt weights ./= s
+    end
+
+    function sample(weights)
         r = rand()
-        for i in 1:length(losses)
+        for i in 1:length(weights)
             if weights[i]>=r
                 return i
             else

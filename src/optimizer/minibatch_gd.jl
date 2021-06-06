@@ -5,7 +5,8 @@ module Minibatch_GD
         model.initialize(model, mini_batch)
         input_shape = size(input_data)[1:end-1]
         output_shape = size(output_data)[1:end-1]
-        batch_size = ceil(Int64, size(input_data)[end]/batch)*mini_batch
+        examples = size(input_data)[end]
+        batch_size = ceil(Int64, examples/batch)*mini_batch
 
         current_input_data = zeros(Float32, input_shape..., mini_batch)
         current_output_data = zeros(Float32, output_shape..., mini_batch)
@@ -15,7 +16,7 @@ module Minibatch_GD
             @time begin
                 for t in 1:mini_batch:batch_size-mini_batch+1
                     @batch for i in 1:mini_batch
-                        index = rand(1:size(input_data)[end])
+                        index = rand(1:examples)
                         selectdim(current_input_data, length(input_shape)+1, i) .= selectdim(input_data, length(input_shape)+1, index)
                         selectdim(current_output_data, length(output_shape)+1, i) .= selectdim(output_data, length(output_shape)+1, index)
                     end
