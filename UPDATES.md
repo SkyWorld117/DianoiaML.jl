@@ -1,5 +1,9 @@
 # Update Log
 
+### Update 0.4.7 - 06.06.2021
+- Fixed the UI of **GA**. 
+- Greatly optimized **GA** (about four times faster). 
+
 ### Update 0.4.6 - 06.06.2021
 - Fixed **Minibatch_GD** and **GA**. 
 - Slightly optimized **GA**. 

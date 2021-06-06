@@ -1,7 +1,7 @@
 name = "DianoiaML"
 uuid = "0bf644f3-9992-48f5-8d6e-b7168dcf6b06"
 authors = ["Yi Zhu, @SkyWord117"]
-version = "0.4.6"
+version = "0.4.7"
 
 [deps]
 HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"

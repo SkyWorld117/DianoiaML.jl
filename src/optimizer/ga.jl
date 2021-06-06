@@ -32,12 +32,12 @@ module GA
                         print("=")
                     end
 
-                    @time for i in 1:gene_pool
+                    for i in 1:gene_pool
                         models[i].activate(models[i], current_input_data)
                         losses[i] = monitor.func(models[i].layers[end-1].output, current_output_data)
                     end
 
-                    @time for i in 1:gene_pool-num_copy
+                    for i in 1:gene_pool-num_copy
                         get_weights!(weights, losses)
                         recomutation!(models[argmax(losses)], models[sample(weights)], models[sample(weights)], α, t, batch_size-mini_batch+1)
                         losses[argmax(losses)] = Inf32
@@ -79,39 +79,30 @@ module GA
 
     function recomutation!(new_model, model₁, model₂, α, t, T)
         for i in 1:model₁.num_layer
-            if hasproperty(model₁.layers[i], :filters) && hasproperty(model₁.layers[i], :biases)
-                @batch for j in eachindex(model₁.layers[i].filters)
-                    if rand()<=α
-                        new_model.layers[i].filters[j] = rand(min(model₁.layers[i].filters[j], model₂.layers[i].filters[j]):1.0f-3:max(model₁.layers[i].filters[j], model₂.layers[i].filters[j]))
-                        new_model.layers[i].filters[j] += mutation_func(t, new_model.layers[i].filters[j], T)
-                    else
-                        new_model.layers[i].filters[j] = rand(min(model₁.layers[i].filters[j], model₂.layers[i].filters[j]):1.0f-3:max(model₁.layers[i].filters[j], model₂.layers[i].filters[j]))
-                    end
+            if hasproperty(new_model.layers[i], :filters)
+                @avxt temp = model₂.layers[i].filters .- model₁.layers[i].filters
+                rand!(local_rng(), new_model.layers[i].filters, VectorizedRNG.StaticInt(0), model₁.layers[i].filters, temp)
+                rand!(local_rng(), temp)
+                @avxt for j in eachindex(temp)
+                    new_model.layers[i].filters[j] = ifelse(temp[j]<=α, ifelse(temp[j]<=0.5, (1.0f0-new_model.layers[i].filters[j])*(1.0f0-temp[j]^(1-t/T)^5), -(new_model.layers[i].filters[j]+1.0f0)*(1.0f0-temp[j]^(1-t/T)^5)), new_model.layers[i].filters[j])
                 end
-                @batch for j in eachindex(model₁.layers[i].biases)
-                    if rand()<=α
-                        new_model.layers[i].biases[j] = rand(min(model₁.layers[i].biases[j], model₂.layers[i].biases[j]):1.0f-3:max(model₁.layers[i].biases[j], model₂.layers[i].biases[j]))
-                        new_model.layers[i].biases[j] += mutation_func(t, new_model.layers[i].biases[j], T)
-                    else
-                        new_model.layers[i].biases[j] = rand(min(model₁.layers[i].biases[j], model₂.layers[i].biases[j]):1.0f-3:max(model₁.layers[i].biases[j], model₂.layers[i].biases[j]))
-                    end
+            end
+
+            if hasproperty(new_model.layers[i], :weights)
+                @avxt temp = model₂.layers[i].weights .- model₁.layers[i].weights
+                rand!(local_rng(), new_model.layers[i].weights, VectorizedRNG.StaticInt(0), model₁.layers[i].weights, temp)
+                rand!(local_rng(), temp)
+                @avxt for j in eachindex(temp)
+                    new_model.layers[i].weights[j] = ifelse(temp[j]<=α, ifelse(temp[j]<=0.5, (1.0f0-new_model.layers[i].weights[j])*(1.0f0-temp[j]^(1-t/T)^5), -(new_model.layers[i].weights[j]+1.0f0)*(1.0f0-temp[j]^(1-t/T)^5)), new_model.layers[i].weights[j])
                 end
-            elseif hasproperty(model₁.layers[i], :weights) && hasproperty(model₁.layers[i], :biases)
-                @batch for j in eachindex(model₁.layers[i].weights)
-                    if rand()<=α
-                        new_model.layers[i].weights[j] = rand(min(model₁.layers[i].weights[j], model₂.layers[i].weights[j]):1.0f-3:max(model₁.layers[i].weights[j], model₂.layers[i].weights[j]))
-                        new_model.layers[i].weights[j] += mutation_func(t, new_model.layers[i].weights[j], T)
-                    else
-                        new_model.layers[i].weights[j] = rand(min(model₁.layers[i].weights[j], model₂.layers[i].weights[j]):1.0f-3:max(model₁.layers[i].weights[j], model₂.layers[i].weights[j]))
-                    end
-                end
-                @batch for j in eachindex(model₁.layers[i].biases)
-                    if rand()<=α
-                        new_model.layers[i].biases[j] = rand(min(model₁.layers[i].biases[j], model₂.layers[i].biases[j]):1.0f-3:max(model₁.layers[i].biases[j], model₂.layers[i].biases[j]))
-                        new_model.layers[i].biases[j] += mutation_func(t, new_model.layers[i].biases[j], T)
-                    else
-                        new_model.layers[i].biases[j] = rand(min(model₁.layers[i].biases[j], model₂.layers[i].biases[j]):1.0f-3:max(model₁.layers[i].biases[j], model₂.layers[i].biases[j]))
-                    end
+            end
+
+            if hasproperty(new_model.layers[i], :biases)
+                @avxt temp = model₂.layers[i].biases .- model₁.layers[i].biases
+                rand!(local_rng(), new_model.layers[i].biases, VectorizedRNG.StaticInt(0), model₁.layers[i].biases, temp)
+                rand!(local_rng(), temp)
+                @avxt for j in eachindex(temp)
+                    new_model.layers[i].biases[j] = ifelse(temp[j]<=α, ifelse(temp[j]<=0.5, (1.0f0-new_model.layers[i].biases[j])*(1.0f0-temp[j]^(1-t/T)^5), -(new_model.layers[i].biases[j]+1.0f0)*(1.0f0-temp[j]^(1-t/T)^5)), new_model.layers[i].biases[j])
                 end
             end
         end
