@@ -95,6 +95,9 @@ module DianoiaML
     export Classification
 
     include("optimizer/training.jl")
+    include("./optimizer/sgd.jl")
+    using .SGD
+    export SGD
     include("./optimizer/minibatch_gd.jl")
     using .Minibatch_GD
     export Minibatch_GD
@@ -104,9 +107,6 @@ module DianoiaML
     include("./optimizer/adabelief.jl")
     using .AdaBelief
     export AdaBelief
-    include("./optimizer/sgd.jl")
-    using .SGD
-    export SGD
     include("./optimizer/ga.jl")
     using .GA
     export GA

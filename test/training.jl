@@ -18,9 +18,9 @@ end
                 push!(batches, vec(copy(data)))
                 isempty(args) || push!(steps, args[1])
             end, 0.0)
-        extra = optimizer === Minibatch_GD ? (mini_batch=2,) : (;)
+        options = optimizer === Minibatch_GD ? (batch=3, mini_batch=2) : (batch=2.0,)
         optimizer.fit(; model=tracker, input_data=x, output_data=y, loss_function=Quadratic_Loss,
-                      monitor, epochs=2, batch=2.0, shuffle=false, verbose=false, extra...)
+                      monitor, epochs=2, shuffle=false, verbose=false, options...)
         @test batches == repeat([Float32[1, 2], Float32[3, 4], Float32[5]], 2)
         @test sizes == [2, 1, 2, 1]
         @test steps == (optimizer in (Adam, AdaBelief) ? collect(1:6) : Int[])
@@ -33,6 +33,26 @@ end
     end
     @test_throws DimensionMismatch Adam.fit(; model, input_data=x, output_data=y[:, 1:2],
                                              loss_function=Quadratic_Loss, monitor=Absolute, verbose=false)
+end
+
+@testset "SGD batch sizes and legacy entry point" begin
+    x = ones(Float32, 1, 3)
+    y = Float32[1 2 3]
+    options = (input_data=x, output_data=y, loss_function=Quadratic_Loss, monitor=Absolute,
+               epochs=1, α=0.1, shuffle=false, verbose=false)
+    for (batch, expected) in ((1, 0.912f0), (2, 0.78f0), (3, 0.4f0), (6, 0.4f0))
+        model = dense_model(1, 1)
+        SGD.fit(; model, batch, options...)
+        @test only(model.layers[2].weights) ≈ expected
+        @test only(model.layers[2].biases) ≈ expected
+    end
+
+    legacy = dense_model(1, 1)
+    modern = dense_model(1, 1)
+    Minibatch_GD.fit(; model=legacy, batch=3, mini_batch=2, options...)
+    SGD.fit(; model=modern, batch=2, options...)
+    @test legacy.layers[2].weights == modern.layers[2].weights
+    @test legacy.layers[2].biases == modern.layers[2].biases
 end
 
 @testset "Optimizer equations and repeated fits" begin
@@ -64,7 +84,7 @@ end
     rng = MersenneTwister(24)
     x = 2f0 .* rand(rng, Float32, 2, 33) .- 1f0
     y = Float32[0.7 -1.2] * x .+ 0.15f0
-    for optimizer in (SGD, Minibatch_GD, Adam, AdaBelief)
+    for optimizer in (SGD, Adam, AdaBelief)
         model = dense_model(2, 1)
         optimizer.fit(; model, input_data=x, output_data=y, loss_function=Mean_Squared_Error,
                       monitor=Absolute, epochs=60, batch=8, α=0.04, rng=MersenneTwister(59), verbose=false)

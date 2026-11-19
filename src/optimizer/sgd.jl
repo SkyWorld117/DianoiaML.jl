@@ -2,6 +2,13 @@ module SGD
     using ..DianoiaML: fit_gradient!
     using Random: default_rng
 
+    """
+        SGD.fit(; model, input_data, output_data, loss_function, monitor, batch=1, ...)
+
+    Visit every example once per epoch. Use `batch=1` for stochastic updates,
+    a larger batch for minibatches, or the number of examples for full-batch
+    gradient descent. Each update averages the gradients in its batch.
+    """
     function fit(;model, input_data::Array{Float32}, output_data::Array{Float32}, loss_function, monitor,
                  α::Float64=0.01, epochs::Int=20, batch::Real=1,
                  shuffle::Bool=true, rng=default_rng(), verbose::Bool=true)
