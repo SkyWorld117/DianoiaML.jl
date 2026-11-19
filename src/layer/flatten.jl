@@ -1,6 +1,4 @@
 module FlattenM
-    using LoopVectorization
-
     mutable struct Flatten
         save_layer::Any
         load_layer::Any
@@ -15,31 +13,26 @@ module FlattenM
         δ::Array{Float32}
 
         function Flatten(;input_shape::Tuple)
-            s = 1
-            for i in input_shape
-                s *= i
-            end
-            output_shape = (s,)
+            output_shape = (prod(input_shape),)
 
             new(save_Flatten, load_Flatten, activate_Flatten, init_Flatten, update_Flatten, input_shape, output_shape)
         end
     end
 
     function init_Flatten(layer::Flatten, mini_batch::Int64)
+        isdefined(layer, :output) && size(layer.output, ndims(layer.output)) == mini_batch && return
         layer.output = zeros(Float32, layer.output_shape..., mini_batch)
         layer.δ = zeros(Float32, layer.input_shape..., mini_batch)
     end
 
     function activate_Flatten(layer::Flatten, input::Array{Float32})
-        @avxt for i in eachindex(input)
-            layer.output[i] = input[i]
-        end
+        length(layer.output) == length(input) || throw(DimensionMismatch("unexpected reshape input size"))
+        copyto!(layer.output, input)
     end
 
-    function update_Flatten(layer::Flatten, optimizer::String, input::Array{Float32}, δₗ₊₁::Array{Float32}, α::Float64, parameters::Tuple, direction::Int64=1)
-        @avxt for i in eachindex(δₗ₊₁)
-            layer.δ[i] = δₗ₊₁[i]
-        end
+    function update_Flatten(layer::Flatten, optimizer::String, input::Array{Float32}, δₗ₊₁::Array{Float32}, α::Float64, parameters::Tuple, direction::Int=1)
+        length(layer.δ) == length(δₗ₊₁) || throw(DimensionMismatch("unexpected reshape gradient size"))
+        copyto!(layer.δ, δₗ₊₁)
     end
 
     function save_Flatten(layer::Flatten, file::Any, id::String)

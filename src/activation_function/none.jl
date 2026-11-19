@@ -1,21 +1,11 @@
 module None
-    using LoopVectorization
-
-    function func!(output_matrix::Array{Float32}, value_matrix::Array{Float32})
-        @avxt for i in eachindex(value_matrix)
-            value_matrix[i] = ifelse(value_matrix[i]>3.0f38, 3.0f38, value_matrix[i])
-            value_matrix[i] = ifelse(value_matrix[i]<-3.0f38, -3.0f38, value_matrix[i])
-            output_matrix[i] = value_matrix[i]
-        end
+    function func!(output::Array{Float32}, values::Array{Float32})
+        copyto!(output, values)
     end
 
-    function get_∇biases!(∇biases::Array{Float32}, value_matrix::Array{Float32}, δ::Array{Float32})
-        @avxt for i in eachindex(∇biases)
-            ∇biases[i] = δ[i]
-        end
+    function get_∇biases!(gradient::Array{Float32}, values::Array{Float32}, delta::Array{Float32})
+        copyto!(gradient, delta)
     end
 
-    function get_name()
-        return "None"
-    end
+    get_name() = "None"
 end

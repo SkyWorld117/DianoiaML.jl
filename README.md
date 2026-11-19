@@ -4,9 +4,37 @@ DianoiaML is an experimental Keras-like deep learning framework.
 
 The user guide and the To-Do list can be found [here](https://github.com/SkyWorld117/YisyAIFramework.jl/wiki). 
 
-Environment: Julia 1.6.1
+## Setup
 
-**Features**: 
+Use Julia 1.10 or newer. Run these commands from the repository root.
+
+```sh
+./scripts/init_env.sh
+JULIA_DEPOT_PATH="$PWD/.julia-env/depot:" OPENBLAS_NUM_THREADS=1 \
+  julia --project=.julia-env --threads=8 -e 'using Pkg; Pkg.test("DianoiaML")'
+```
+
+The setup script develops the local checkout and installs its dependencies in the ignored
+`.julia-env/` directory. Open Julia with the same depot and project to use the package.
+
+## Training
+
+Supply `Float32` arrays with examples in the last dimension. Each epoch visits every
+example, including the final partial batch. `batch` sets the number of examples per
+update. `Minibatch_GD.fit` and `GA.fit` also accept `mini_batch` as an override.
+Use `shuffle=false` for ordered batches or pass an `rng` to control shuffling.
+
+Each call to Adam or AdaBelief starts fresh optimizer moments and keeps the model's
+learned parameters. To run inference, initialize the model with the number of examples
+you are passing to `model.activate`. Inference disables dropout by default.
+
+GAN training uses the discriminator's real and fake targets from the network itself.
+The noise generator supplies one example per call. A discriminator can have one sigmoid
+output or two outputs ordered fake, real.
+
+`TConv2D` retains the zero-insertion and padding geometry used by existing saved models.
+
+## Features
 <details>
  <summaryClick me! ></summary>
 <p>
@@ -108,7 +136,7 @@ model.add_Glayer(model, Constructive; shape=(28,28,1))
 
 model.add_Dlayer(model, Conv2D; filter=16, kernel_size=(3,3), activation_function=ReLU)
 model.add_Dlayer(model, Conv2D; filter=32, kernel_size=(3,3), activation_function=ReLU)
-model.add_Dlayer(model, MaxPooling2D; kernel_size=(2,2), activation_function=None)
+model.add_Dlayer(model, MaxPooling2D; pool_size=(2,2))
 model.add_Dlayer(model, Flatten;)
 model.add_Dlayer(model, Dense; layer_size=128, activation_function=ReLU)
 model.add_Dlayer(model, Dense; layer_size=64, activation_function=ReLU)

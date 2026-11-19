@@ -1,6 +1,9 @@
 module GlorotUniform
-    function GUMatrix(input_size::Int64, layer_size::Int64, shape::Any)
-        return rand(-sqrt(6/(input_size+layer_size)):0.00001:sqrt(6/(input_size+layer_size)), shape)
+    function GUMatrix(input_size::Int, layer_size::Int, shape)
+        limit = sqrt(6f0 / (input_size + layer_size))
+        values = rand(Float32, shape)
+        values .= (2f0 * limit) .* values .- limit
+        return values
     end
     export GUMatrix
 end

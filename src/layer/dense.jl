@@ -1,7 +1,7 @@
 module DenseM
-    include("../tools/glorotuniform.jl")
-    using .GlorotUniform
-    using LoopVectorization
+    using ..GlorotUniform: GUMatrix
+    using ..DianoiaML: activation_gradient!, update_parameters!
+    using LinearAlgebra: mul!
 
     mutable struct Dense
         save_layer::Any
@@ -15,27 +15,27 @@ module DenseM
         layer_size::Int64
         activation_function::Module
 
-        weights::Array{Float32}
-        biases::Array{Float32}
+        weights::Matrix{Float32}
+        biases::Vector{Float32}
 
-        Vdw::Array{Float32}
-        Sdw::Array{Float32}
-        Vdb::Array{Float32}
-        Sdb::Array{Float32}
+        Vdw::Matrix{Float32}
+        Sdw::Matrix{Float32}
+        Vdb::Vector{Float32}
+        Sdb::Vector{Float32}
+        weight_gradient::Matrix{Float32}
+        bias_gradient::Vector{Float32}
 
-        value::Array{Float32}
-        output::Array{Float32}
-        ∇biases::Array{Float32}
-        δ::Array{Float32}
+        value::Matrix{Float32}
+        output::Matrix{Float32}
+        ∇biases::Matrix{Float32}
+        δ::Matrix{Float32}
 
         function Dense(;input_shape::Tuple, layer_size::Int64, activation_function::Module, randomization::Bool=true)
-            if randomization
-                weights = Array{Float32}(GUMatrix(input_shape[1], layer_size, (layer_size, input_shape[1])))
-                biases = Array{Float32}(GUMatrix(input_shape[1], layer_size, layer_size))
-            else
-                weights = zeros(Float32, (layer_size, input_shape[1]))
-                biases = zeros(Float32, layer_size)
-            end
+            length(input_shape) == 1 && input_shape[1] > 0 && layer_size > 0 ||
+                throw(ArgumentError("Dense requires positive one-dimensional input and output sizes"))
+            weight_shape = (layer_size, input_shape[1])
+            weights = randomization ? GUMatrix(input_shape[1], layer_size, weight_shape) : zeros(Float32, weight_shape)
+            biases = zeros(Float32, layer_size)
 
             output_shape = (layer_size,)
 
@@ -43,105 +43,44 @@ module DenseM
             Sdw = zeros(Float32, size(weights))
             Vdb = zeros(Float32, size(biases))
             Sdb = zeros(Float32, size(biases))
-            new(save_Dense, load_Dense, activate_Dense, init_Dense, update_Dense, input_shape, output_shape, layer_size, activation_function, weights, biases, Vdw, Sdw, Vdb, Sdb)
+            new(save_Dense, load_Dense, activate_Dense, init_Dense, update_Dense, input_shape,
+                output_shape, layer_size, activation_function, weights, biases, Vdw, Sdw, Vdb, Sdb,
+                similar(weights), similar(biases))
         end
     end
 
-    function init_Dense(layer::Dense, mini_batch::Int64)
-        layer.value = zeros(Float32, (layer.layer_size, mini_batch))
-        layer.output = zeros(Float32, (layer.layer_size, mini_batch))
-        layer.∇biases = zeros(Float32, (layer.layer_size, mini_batch))
-        layer.δ = zeros(Float32, (layer.input_shape[1], mini_batch))
+    function init_Dense(layer::Dense, mini_batch::Int)
+        isdefined(layer, :value) && size(layer.value, 2) == mini_batch && return
+        layer.value = zeros(Float32, layer.layer_size, mini_batch)
+        layer.output = similar(layer.value)
+        layer.∇biases = similar(layer.value)
+        layer.δ = zeros(Float32, layer.input_shape[1], mini_batch)
     end
 
-    function activate_Dense(layer::Dense, input::Array{Float32})
-        @avxt for x in axes(layer.weights, 1), y in axes(input, 2)
-            c = 0.0f0
-            for z in axes(layer.weights, 2)
-                c += layer.weights[x,z]*input[z,y]
-            end
-            layer.value[x,y] = c+layer.biases[x]
-        end
-        # layer.value = layer.weights*input .+ layer.biases
+    function activate_Dense(layer::Dense, input::Matrix{Float32})
+        mul!(layer.value, layer.weights, input)
+        layer.value .+= layer.biases
         layer.activation_function.func!(layer.output, layer.value)
     end
 
-    function update_Dense(layer::Dense, optimizer::String, input::Array{Float32}, δₗ₊₁::Array{Float32}, α::Float64, parameters::Tuple, direction::Int64=1)
-        layer.activation_function.get_∇biases!(layer.∇biases, layer.value, δₗ₊₁)
-        @avxt for x in axes(layer.weights, 2), y in axes(layer.∇biases, 2)
-            c = 0.0f0
-            for z in axes(layer.weights, 1)
-                c += layer.weights[z,x]*layer.∇biases[z,y]
-            end
-            layer.δ[x,y] = c
-        end
-        # layer.δ = transpose(layer.weights)*∇biases
+    function update_Dense(layer::Dense, optimizer::String, input::Matrix{Float32}, δₗ₊₁, α::Float64, parameters::Tuple, direction::Int=1)
+        delta = layer.∇biases
+        activation_gradient!(delta, layer.activation_function, layer.value, δₗ₊₁)
+        mul!(layer.δ, transpose(layer.weights), delta)
+        direction == 0 && return
 
-        if optimizer=="SGD"
-            @avxt for x in axes(layer.∇biases, 1), y in axes(input, 1)
-                layer.weights[x,y] -= α*layer.∇biases[x,1]*input[y,1]*direction
-            end
-            # layer.weights -= ∇biases*transpose(input).*α
-            @avxt for i in 1:length(layer.biases)
-                layer.biases[i] -= α*layer.∇biases[i,1]*direction
-            end
-            # layer.biases -= sum(∇biases, dims=2).*α
-
-        elseif optimizer=="Minibatch_GD"
-            batch_size = size(input, 2)
-            @avxt for x in axes(layer.∇biases, 1), y in axes(input, 1)
-                c = 0.0f0
-                for b in axes(layer.∇biases, 2)
-                    c += layer.∇biases[x,b]*input[y,b]
-                end
-                layer.weights[x,y] -= c*α*direction/batch_size
-            end
-            # layer.weights -= ∇biases*transpose(input).*α
-            @avxt for i in 1:length(layer.biases)
-                c = 0.0f0
-                for b in axes(layer.∇biases, 2)
-                    c += layer.∇biases[i,b]
-                end
-                layer.biases[i] -= c*α*direction/batch_size
-            end
-            # layer.biases -= sum(∇biases, dims=2).*α
-
-        elseif optimizer=="Adam"
-            t = parameters[1]
-            β₁ = parameters[2]
-            β₂ = parameters[3]
-            ϵ = parameters[4]
-
-            @avxt for x in axes(layer.∇biases, 1), y in axes(input, 1)
-                layer.Vdw[x,y] = layer.Vdw[x,y]*β₁ + layer.∇biases[x,1]*input[y,1]*(1-β₁)
-                layer.Sdw[x,y] = layer.Sdw[x,y]*β₂ + (layer.∇biases[x,1]*input[y,1])^2*(1-β₂)
-                layer.weights[x,y] -= α*(layer.Vdw[x,y]/(1-β₁^t))/(sqrt(layer.Sdw[x,y]/(1-β₂^t))+ϵ)*direction
-            end
-
-            @avxt for i in 1:length(layer.biases)
-                layer.Vdb[i] = layer.Vdb[i]*β₁ + layer.∇biases[i,1]*(1-β₁)
-                layer.Sdb[i] = layer.Sdb[i]*β₂ + layer.∇biases[i,1]^2*(1-β₂)
-                layer.biases[i] -= α*(layer.Vdb[i]/(1-β₁^t))/(sqrt(layer.Sdb[i]/(1-β₂^t))+ϵ)*direction
-            end
-
-        elseif optimizer=="AdaBelief"
-            t = parameters[1]
-            β₁ = parameters[2]
-            β₂ = parameters[3]
-            ϵ = parameters[4]
-
-            @avxt for x in axes(layer.∇biases, 1), y in axes(input, 1)
-                layer.Vdw[x,y] = layer.Vdw[x,y]*β₁ + layer.∇biases[x,1]*input[y,1]*(1-β₁)
-                layer.Sdw[x,y] = layer.Sdw[x,y]*β₂ + (layer.∇biases[x,1]*input[y,1]-layer.Vdw[x,y])^2*(1-β₂) + ϵ
-                layer.weights[x,y] -= α*(layer.Vdw[x,y]/(1-β₁^t))/(sqrt(layer.Sdw[x,y]/(1-β₂^t))+ϵ)*direction
-            end
-
-            @avxt for i in 1:length(layer.biases)
-                layer.Vdb[i] = layer.Vdb[i]*β₁ + layer.∇biases[i,1]*(1-β₁)
-                layer.Sdb[i] = layer.Sdb[i]*β₂ + (layer.∇biases[i,1]-layer.Vdb[i])^2*(1-β₂)
-                layer.biases[i] -= α*(layer.Vdb[i]/(1-β₁^t))/(sqrt(layer.Sdb[i]/(1-β₂^t))+ϵ)*direction
+        rate = Float32(α * direction)
+        batch = size(input, 2)
+        mul!(layer.weight_gradient, delta, transpose(input), inv(Float32(batch)), 0f0)
+        fill!(layer.bias_gradient, 0f0)
+        for b in axes(delta, 2)
+            @inbounds @simd for i in axes(delta, 1)
+                layer.bias_gradient[i] += delta[i, b]
             end
         end
+        layer.bias_gradient ./= Float32(batch)
+        update_parameters!(optimizer, layer.weights, layer.weight_gradient, layer.Vdw, layer.Sdw, rate, parameters)
+        update_parameters!(optimizer, layer.biases, layer.bias_gradient, layer.Vdb, layer.Sdb, rate, parameters)
     end
 
     function save_Dense(layer::Dense, file::Any, id::String)

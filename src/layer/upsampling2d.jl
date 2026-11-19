@@ -1,5 +1,5 @@
 module UpSampling2DM
-    using LoopVectorization
+    using ..DianoiaML: activation_gradient!
 
     mutable struct UpSampling2D
         save_layer::Any
@@ -13,44 +13,49 @@ module UpSampling2DM
         size::Tuple{Int64, Int64}
         activation_function::Module
 
-        value::Array{Float32}
-        output::Array{Float32}
-        ∇biases::Array{Float32}
-        δ::Array{Float32}
+        value::Array{Float32,4}
+        output::Array{Float32,4}
+        ∇biases::Array{Float32,4}
+        δ::Array{Float32,4}
 
         function UpSampling2D(;input_shape::Tuple, size::Tuple{Int64, Int64}, activation_function::Module)
+            length(input_shape) == 3 && all(>(0), input_shape) && all(>(0), size) ||
+                throw(ArgumentError("invalid upsampling shape or scale"))
             output_shape = (input_shape[1]*size[1], input_shape[2]*size[2], input_shape[3])
             new(save_UpSampling2D, load_UpSampling2D, activate_UpSampling2D, init_UpSampling2D, update_UpSampling2D, input_shape, output_shape, size, activation_function)
         end
     end
 
     function init_UpSampling2D(layer::UpSampling2D, mini_batch::Int64)
+        isdefined(layer, :value) && size(layer.value, 4) == mini_batch && return
         layer.value = zeros(Float32, layer.output_shape..., mini_batch)
         layer.output = zeros(Float32, layer.output_shape..., mini_batch)
         layer.∇biases = zeros(Float32, layer.output_shape..., mini_batch)
         layer.δ = zeros(Float32, layer.input_shape..., mini_batch)
     end
 
-    function activate_UpSampling2D(layer::UpSampling2D, input::Array{Float32})
+    function activate_UpSampling2D(layer::UpSampling2D, input::Array{Float32,4})
+        size(input) == size(layer.δ) || throw(DimensionMismatch("unexpected upsampling input size"))
         x, y = layer.size
-        @avxt for i in axes(input, 1), j in axes(input, 2), c in axes(input, 3), b in axes(input, 4)
-            for s₁ in 1:layer.size[1], s₂ in 1:layer.size[2]
-                layer.value[(i-1)*x+s₁, (j-1)*y+s₂, c, b] = input[i, j, c, b]
+        @inbounds for b in axes(input, 4), c in axes(input, 3), j in axes(input, 2), sy in 1:y, i in axes(input, 1)
+            @simd for sx in 1:x
+                layer.value[(i - 1) * x + sx, (j - 1) * y + sy, c, b] = input[i, j, c, b]
             end
         end
-
         layer.activation_function.func!(layer.output, layer.value)
     end
 
-    function update_UpSampling2D(layer::UpSampling2D, optimizer::String, input::Array{Float32}, δₗ₊₁::Array{Float32}, α::Float64, parameters::Tuple, direction::Int64=0)
-        layer.activation_function.get_∇biases!(layer.∇biases, layer.value, δₗ₊₁)
-        layer.δ .= 0.0f0
-        
+    function update_UpSampling2D(layer::UpSampling2D, optimizer::String, input::Array{Float32,4}, δₗ₊₁, α::Float64, parameters::Tuple, direction::Int=1)
+        activation_gradient!(layer.∇biases, layer.activation_function, layer.value, δₗ₊₁)
         x, y = layer.size
-        @avxt for i in axes(layer.δ, 1), j in axes(layer.δ, 2), c in axes(layer.δ, 3), b in axes(layer.δ, 4)
-            for s₁ in 1:layer.size[1], s₂ in 1:layer.size[2]
-                layer.δ[i, j, c, b] += layer.∇biases[(i-1)*x+s₁, (j-1)*y+s₂, c, b]
+        @inbounds for b in axes(layer.δ, 4), c in axes(layer.δ, 3), j in axes(layer.δ, 2), i in axes(layer.δ, 1)
+            total = 0f0
+            for sy in 1:y
+                @simd for sx in 1:x
+                    total += layer.∇biases[(i - 1) * x + sx, (j - 1) * y + sy, c, b]
+                end
             end
+            layer.δ[i, j, c, b] = total
         end
     end
 

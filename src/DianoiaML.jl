@@ -1,6 +1,18 @@
 module DianoiaML
-    using LoopVectorization, LinearAlgebra
-    BLAS.set_num_threads(1)
+    include("tools/glorotuniform.jl")
+    include("optimizer/parameter_update.jl")
+    include("layer/spatial_convolution.jl")
+
+    struct LogitGradient{A}
+        data::A
+    end
+
+    activate_layer(layer, input, training) = layer.activate(layer, input)
+
+    activation_gradient!(dest, activation, values, delta) =
+        activation.get_∇biases!(dest, values, delta)
+    activation_gradient!(dest, activation, values, delta::LogitGradient) =
+        copyto!(dest, delta.data)
 
     include("./activation_function/relu.jl")
     using .ReLU
@@ -44,6 +56,9 @@ module DianoiaML
     include("./layer/tconv2d.jl")
     using .TConv2DM:TConv2D
     export TConv2D
+    include("./network/resnet.jl")
+    using .resnet:ResNet
+    export ResNet
     include("./layer/residual.jl")
     using .ResidualM:Residual
     export Residual
@@ -54,9 +69,6 @@ module DianoiaML
     include("./network/gan.jl")
     using .gan:GAN
     export GAN
-    include("./network/resnet.jl")
-    using .resnet:ResNet
-    export ResNet
 
     include("./loss_function/categorical_cross_entropy_loss.jl")
     using .Categorical_Cross_Entropy_Loss
@@ -73,6 +85,7 @@ module DianoiaML
     include("./loss_function/absolute_loss.jl")
     using .Absolute_Loss
     export Absolute_Loss
+    include("loss_function/output_gradient.jl")
 
     include("./monitor/absolute.jl")
     using .Absolute
@@ -81,6 +94,7 @@ module DianoiaML
     using .Classification
     export Classification
 
+    include("optimizer/training.jl")
     include("./optimizer/minibatch_gd.jl")
     using .Minibatch_GD
     export Minibatch_GD

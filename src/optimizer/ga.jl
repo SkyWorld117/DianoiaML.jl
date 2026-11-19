@@ -1,110 +1,97 @@
 module GA
-    using Polyester, LoopVectorization, VectorizedRNG
+    using Random: default_rng, shuffle!
+    using ..DianoiaML: Residual, batch_buffer, batch_size_for, copy_examples!, sample_count
 
-    function fit(;models::Array, input_data::Array{Float32}, output_data::Array{Float32}, monitor::Any, α::Float64=0.01, num_copy::Int64, epochs::Int64=20, batch::Real=32, mini_batch::Int64=5)
-        gene_pool = length(models)
-        input_shape = models[1].layers[2].input_shape
-        output_shape = models[1].layers[end].output_shape
-        examples = size(input_data)[end]
-        batch_size = ceil(Int64, examples/batch)*mini_batch
-        current_input_data = zeros(Float32, input_shape..., mini_batch)
-        current_output_data = zeros(Float32, output_shape..., mini_batch)
-
-        @batch for i in 1:gene_pool
-            models[i].initialize(models[i], mini_batch)
+    function fit(;models::Array, input_data::Array{Float32}, output_data::Array{Float32}, monitor,
+                 α::Float64=0.01, num_copy::Int, epochs::Int=20, batch::Real=32, mini_batch::Union{Int,Nothing}=nothing,
+                 shuffle::Bool=true, rng=default_rng(), verbose::Bool=true)
+        1 <= num_copy <= length(models) || throw(ArgumentError("num_copy must be between 1 and the population size"))
+        length(unique(models)) == length(models) || throw(ArgumentError("each genetic candidate must be a distinct model"))
+        0 <= α <= 1 || throw(ArgumentError("mutation probability must be in [0, 1]"))
+        epochs >= 0 || throw(ArgumentError("epochs must be nonnegative"))
+        examples = sample_count(input_data, output_data)
+        size = batch_size_for(something(mini_batch, batch), examples)
+        steps = cld(examples, size)
+        losses = zeros(Float64, length(models))
+        fitness = zeros(Float64, num_copy)
+        order = collect(1:examples)
+        x, y = batch_buffer(input_data, size), batch_buffer(output_data, size)
+        tail = rem(examples, size)
+        tail_x, tail_y = tail == 0 ? (x, y) : (batch_buffer(input_data, tail), batch_buffer(output_data, tail))
+        for model in models
+            model.initialize(model, size)
         end
 
-        for e in 1:epochs
-            print("Epoch ", e, "\n[")
-            loss = 0
-            losses = zeros(Float32, gene_pool)
-            weights = zeros(Float32, gene_pool)
-            @time begin
-
-                for t in 1:mini_batch:batch_size-mini_batch+1
-                    @batch for i in 1:mini_batch
-                        index = rand(1:examples)
-                        selectdim(current_input_data, length(input_shape)+1, i) .= selectdim(input_data, length(input_shape)+1, index)
-                        selectdim(current_output_data, length(output_shape)+1, i) .= selectdim(output_data, length(output_shape)+1, index)
+        active_size = size
+        for epoch in 1:epochs
+            loss = 0.0
+            shuffle && shuffle!(rng, order)
+            for (step, first) in enumerate(1:size:examples)
+                count = min(size, examples - first + 1)
+                if active_size != count
+                    for model in models
+                        model.initialize(model, count)
                     end
-
-                    if ((t+mini_batch-1)÷mini_batch)%ceil(batch_size/(50*mini_batch))==0
-                        print("=")
-                    end
-
-                    for i in 1:gene_pool
-                        models[i].activate(models[i], current_input_data)
-                        losses[i] = monitor.func(models[i].layers[end-1].output, current_output_data)
-                    end
-
-                    for i in 1:gene_pool-num_copy
-                        get_weights!(weights, losses)
-                        recomutation!(models[argmax(losses)], models[sample(weights)], models[sample(weights)], α, t, batch_size-mini_batch+1)
-                        losses[argmax(losses)] = Inf32
-                    end
-
-                    loss += minimum(losses)
+                    active_size = count
                 end
-                print("] with loss ", loss, ", time usage ")
+                current_x, current_y = count == size ? (x, y) : (tail_x, tail_y)
+                copy_examples!(current_x, input_data, order, first)
+                copy_examples!(current_y, output_data, order, first)
+                for i in eachindex(models)
+                    prediction = models[i].activate(models[i], current_x)
+                    losses[i] = monitor.func(prediction, current_y)
+                end
+                rank = sortperm(losses)
+                best = losses[rank[1]]
+                isfinite(best) || throw(ArgumentError("genetic candidates did not produce a finite loss"))
+                loss += best
+                for i in 1:num_copy
+                    fitness[i] = inv(1 + (losses[rank[i]] - best))
+                end
+                total = sum(fitness)
+                strength = Float32((1 - step / (steps + 1))^5)
+                for i in num_copy+1:length(rank)
+                    first_parent = models[rank[sample(fitness, total, rng)]]
+                    second_parent = models[rank[sample(fitness, total, rng)]]
+                    recombine!(models[rank[i]], first_parent, second_parent, α, strength, rng)
+                end
+            end
+            verbose && println("Epoch ", epoch, " mean monitor ", loss / examples)
+        end
+        return nothing
+    end
+
+    function sample(weights, total, rng)
+        remaining = rand(rng) * total
+        for i in eachindex(weights)
+            remaining -= weights[i]
+            remaining < 0 && return i
+        end
+        return findlast(>(0), weights)
+    end
+
+    function recombine!(child, parent1, parent2, probability, strength, rng)
+        for i in 2:parent1.num_layer+1
+            dest, a, b = child.layers[i], parent1.layers[i], parent2.layers[i]
+            if dest isa Residual
+                recombine!(dest.resnet, a.resnet, b.resnet, probability, strength, rng)
+            end
+            for field in (:filters, :weights, :biases)
+                if hasproperty(dest, field)
+                    recombine_array!(getproperty(dest, field), getproperty(a, field), getproperty(b, field), probability, strength, rng)
+                end
             end
         end
     end
 
-    function get_weights!(weights::Array{Float32}, losses::Array{Float32})
-        @avxt for i in eachindex(losses)
-            weights[i] = ifelse(losses[i]!=Inf32, 1/losses[i], 0.0f0)
-        end
-        s = sum(weights)
-        @avxt weights ./= s
-    end
-
-    function sample(weights)
-        r = rand()
-        for i in 1:length(weights)
-            if weights[i]>=r
-                return i
-            else
-                r -= weights[i]
+    function recombine_array!(dest, a, b, probability, strength, rng)
+        for i in eachindex(dest, a, b)
+            value = a[i] + rand(rng, Float32) * (b[i] - a[i])
+            if rand(rng) < probability
+                limit = rand(rng, Bool) ? 1f0 : -1f0
+                value += (limit - value) * (1f0 - rand(rng, Float32)^strength)
             end
-        end
-    end
-
-    function mutation_func(t, v, T)
-        if rand(-1:2:1)>0
-            return (1.0f0-v)*(1.0f0-rand(0.0f0:1.0f-3:1.0f0)^(1-t/T)^5)
-        else
-            return -(v+1.0f0)*(1.0f0-rand(0.0f0:1.0f-3:1.0f0)^(1-t/T)^5)
-        end
-    end
-
-    function recomutation!(new_model, model₁, model₂, α, t, T)
-        for i in 1:model₁.num_layer
-            if hasproperty(new_model.layers[i], :filters)
-                @avxt temp = model₂.layers[i].filters .- model₁.layers[i].filters
-                rand!(local_rng(), new_model.layers[i].filters, VectorizedRNG.StaticInt(0), model₁.layers[i].filters, temp)
-                rand!(local_rng(), temp)
-                @avxt for j in eachindex(temp)
-                    new_model.layers[i].filters[j] = ifelse(temp[j]<=α, ifelse(temp[j]<=0.5, (1.0f0-new_model.layers[i].filters[j])*(1.0f0-temp[j]^(1-t/T)^5), -(new_model.layers[i].filters[j]+1.0f0)*(1.0f0-temp[j]^(1-t/T)^5)), new_model.layers[i].filters[j])
-                end
-            end
-
-            if hasproperty(new_model.layers[i], :weights)
-                @avxt temp = model₂.layers[i].weights .- model₁.layers[i].weights
-                rand!(local_rng(), new_model.layers[i].weights, VectorizedRNG.StaticInt(0), model₁.layers[i].weights, temp)
-                rand!(local_rng(), temp)
-                @avxt for j in eachindex(temp)
-                    new_model.layers[i].weights[j] = ifelse(temp[j]<=α, ifelse(temp[j]<=0.5, (1.0f0-new_model.layers[i].weights[j])*(1.0f0-temp[j]^(1-t/T)^5), -(new_model.layers[i].weights[j]+1.0f0)*(1.0f0-temp[j]^(1-t/T)^5)), new_model.layers[i].weights[j])
-                end
-            end
-
-            if hasproperty(new_model.layers[i], :biases)
-                @avxt temp = model₂.layers[i].biases .- model₁.layers[i].biases
-                rand!(local_rng(), new_model.layers[i].biases, VectorizedRNG.StaticInt(0), model₁.layers[i].biases, temp)
-                rand!(local_rng(), temp)
-                @avxt for j in eachindex(temp)
-                    new_model.layers[i].biases[j] = ifelse(temp[j]<=α, ifelse(temp[j]<=0.5, (1.0f0-new_model.layers[i].biases[j])*(1.0f0-temp[j]^(1-t/T)^5), -(new_model.layers[i].biases[j]+1.0f0)*(1.0f0-temp[j]^(1-t/T)^5)), new_model.layers[i].biases[j])
-                end
-            end
+            dest[i] = value
         end
     end
 end

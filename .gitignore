@@ -9,3 +9,6 @@ deps/src/
 docs/build/
 docs/site/
 *.md
+/.julia-env/
+/Manifest.toml
+/Manifest-v*.toml

@@ -1,10 +1,9 @@
 module Absolute
-    using LoopVectorization
-
-    function func(output_matrix::Array{Float32}, sample_matrix::Array{Float32})
+    function func(output::Array{Float32}, target::Array{Float32})
+        size(output) == size(target) || throw(DimensionMismatch("prediction and target shapes differ"))
         loss = 0.0
-        @avxt for i in eachindex(output_matrix)
-            loss += abs(output_matrix[i]-sample_matrix[i])
+        @inbounds @simd for i in eachindex(output, target)
+            loss += abs(output[i] - target[i])
         end
         return loss
     end
