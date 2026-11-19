@@ -1,4 +1,4 @@
-using Random: default_rng, shuffle!
+using Random: shuffle!
 
 reset_optimizer!(model) = nothing
 
