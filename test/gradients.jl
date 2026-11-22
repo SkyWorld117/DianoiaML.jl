@@ -37,16 +37,14 @@ end
 
 @testset "Fused cross-entropy gradients" begin
     x = ones(Float32, 1, 1)
-    for activation in (Softmax, Softmax_CEL)
-        model = dense_model(1, 2, activation)
-        layer = model.layers[2]
-        layer.weights[:, 1] .= Float32[-1000, 1000]
-        model.initialize(model, 1)
-        target = reshape(Float32[0.75, 0.5], 2, 1)
-        model.update(model, x, target, Categorical_Cross_Entropy_Loss, Absolute, "SGD", 0.1)
-        @test vec(layer.∇biases) ≈ Float32[-0.75, 0.75]
-        @test vec(layer.weights) ≈ Float32[-999.925, 999.925] atol=1f-4
-    end
+    model = dense_model(1, 2, Softmax)
+    layer = model.layers[2]
+    layer.weights[:, 1] .= Float32[-1000, 1000]
+    model.initialize(model, 1)
+    target = reshape(Float32[0.75, 0.5], 2, 1)
+    model.update(model, x, target, Categorical_Cross_Entropy_Loss, Absolute, "SGD", 0.1)
+    @test vec(layer.∇biases) ≈ Float32[-0.75, 0.75]
+    @test vec(layer.weights) ≈ Float32[-999.925, 999.925] atol=1f-4
 
     model = dense_model(1, 1, Sigmoid)
     model.layers[2].weights[1] = -1000f0

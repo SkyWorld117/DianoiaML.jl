@@ -23,8 +23,3 @@ module Softmax
 
     get_name() = "Softmax"
 end
-
-module Softmax_CEL
-    using ..Softmax: func!, get_∇biases!
-    get_name() = "Softmax_CEL"
-end

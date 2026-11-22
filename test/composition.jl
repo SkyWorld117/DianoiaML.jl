@@ -38,7 +38,7 @@ end
 end
 
 @testset "Nested output uses the fused loss gradient" begin
-    classifier = configured_dense(reshape(Float32[-1000, 1000], 2, 1), Softmax_CEL)
+    classifier = configured_dense(reshape(Float32[-1000, 1000], 2, 1), Softmax)
     model = Sequential(Sequential(ResNet(classifier)))
     x = ones(Float32, 1, 1)
     y = reshape(Float32[1, 0], 2, 1)

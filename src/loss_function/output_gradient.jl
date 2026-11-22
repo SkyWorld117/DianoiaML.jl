@@ -11,7 +11,7 @@ function output_gradient!(delta, layer, target, loss)
     output = layer.output
     size(delta) == size(output) == size(target) || throw(DimensionMismatch("prediction and target shapes differ"))
     activation = output_activation(layer)
-    if loss === Categorical_Cross_Entropy_Loss && (activation === Softmax || activation === Softmax_CEL)
+    if loss === Categorical_Cross_Entropy_Loss && activation === Softmax
         # d/dlogits of cross-entropy also covers weighted and smoothed targets.
         classes = size(output, 1)
         for first in 1:classes:length(output)

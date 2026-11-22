@@ -102,7 +102,7 @@ end
     model.layers[2].filters .= 0.2f0
     model.add_layer(model, MaxPooling2D; pool_size=(2, 2), strides=(1, 1))
     model.add_layer(model, Flatten)
-    model.add_layer(model, Dense; layer_size=2, activation_function=Softmax_CEL, randomization=false)
+    model.add_layer(model, Dense; layer_size=2, activation_function=Softmax, randomization=false)
     Adam.fit(; model, input_data=x, output_data=y, loss_function=Categorical_Cross_Entropy_Loss,
               monitor=Classification, epochs=15, batch=4, α=0.03, rng=MersenneTwister(6), verbose=false)
     model.initialize(model, size(x, 4))

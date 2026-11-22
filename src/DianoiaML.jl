@@ -22,8 +22,6 @@ module DianoiaML
     include("./activation_function/softmax.jl")
     using .Softmax
     export Softmax
-    using .Softmax_CEL
-    export Softmax_CEL
     include("./activation_function/tanh.jl")
     using .tanH
     export tanH

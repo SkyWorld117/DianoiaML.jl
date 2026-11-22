@@ -117,6 +117,30 @@ end
     end
 end
 
+@testset "Legacy Softmax activation name" begin
+    model = dense_model(1, 2, Softmax)
+    model.layers[2].weights[:, 1] .= Float32[1, -1]
+    model.initialize(model, 1)
+    x = ones(Float32, 1, 1)
+    expected = model.activate(model, x)
+
+    mktempdir() do dir
+        path = joinpath(dir, "legacy-softmax.h5")
+        save_Sequential(model, path)
+        h5open(path, "r+") do file
+            key = "1activation_function"
+            @test read(file, key) == "Softmax"
+            delete_object(file, key)
+            write(file, key, "Softmax_CEL")
+        end
+
+        loaded = load_Sequential(path)
+        loaded.initialize(loaded, 1)
+        @test loaded.layers[2].activation_function === Softmax
+        @test loaded.activate(loaded, x) == expected
+    end
+end
+
 @testset "HDF5 model roundtrip with nested layers" begin
     branch = ResNet()
     branch.add_layer(branch, Dense; input_shape=(2,), layer_size=2, activation_function=tanH, randomization=false)
@@ -127,7 +151,7 @@ end
     model.add_layer(model, Residual; resnet=branch)
     model.add_layer(model, Constructive; shape=(1, 2, 1))
     model.add_layer(model, Flatten)
-    model.add_layer(model, Dense; layer_size=2, activation_function=Softmax_CEL, randomization=false)
+    model.add_layer(model, Dense; layer_size=2, activation_function=Softmax, randomization=false)
     model.layers[end].weights .= Float32[0.1 0.2; 0.3 0.4]
     x = Float32[1 3; 2 4]
     model.initialize(model, 2)

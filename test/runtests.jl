@@ -1,4 +1,5 @@
 using DianoiaML
+using HDF5: delete_object, h5open
 using LinearAlgebra: I, dot
 using Random: MersenneTwister, seed!
 using Test

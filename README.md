@@ -36,6 +36,9 @@ GAN training uses the discriminator's real and fake targets from the network its
 The noise generator supplies one example per call. A discriminator can have one sigmoid
 output or two outputs ordered fake, real.
 
+`Softmax` uses the fused gradient with `Categorical_Cross_Entropy_Loss`. Older
+HDF5 models saved with `Softmax_CEL` load as `Softmax`.
+
 `TConv2D` retains the zero-insertion and padding geometry used by existing saved models.
 
 ## Nested networks
@@ -55,7 +58,7 @@ function feedforward_block(width, hidden)
 end
 
 encoder = Sequential(feedforward_block(64, 128), feedforward_block(64, 128))
-model = Sequential(encoder, Dense(input_shape=(64,), layer_size=10, activation_function=Softmax_CEL))
+model = Sequential(encoder, Dense(input_shape=(64,), layer_size=10, activation_function=Softmax))
 ```
 
 Training the outer model updates the layers inside its blocks. `Residual(block)`
@@ -192,7 +195,7 @@ model.add_layer(model, Conv2D; filter=64, kernel_size=(3,3), activation_function
 model.add_layer(model, MaxPooling2D; pool_size=(2,2))
 model.add_layer(model, Flatten;)
 model.add_layer(model, Dense; layer_size=128, activation_function=ReLU)
-model.add_layer(model, Dense; layer_size=10, activation_function=Softmax_CEL)
+model.add_layer(model, Dense; layer_size=10, activation_function=Softmax)
 
 Adam.fit(model=model, input_data=Float32.(reshape(train_x, 28, 28, 1, :)), output_data=oneHot(train_y, 10, dict),
         loss_function=Categorical_Cross_Entropy_Loss, monitor=Classification, epochs=10, batch=128)
@@ -270,7 +273,7 @@ model.add_layer(model, Flatten;)
 model.add_layer(model, Dropout; rate=0.5)
 model.add_layer(model, Dense; layer_size=128, activation_function=ReLU)
 model.add_layer(model, Residual; resnet=resnet)
-model.add_layer(model, Dense; layer_size=10, activation_function=Softmax_CEL)
+model.add_layer(model, Dense; layer_size=10, activation_function=Softmax)
 
 Adam.fit(model=model, input_data=Array{Float32}(reshape(train_x, 28,28,1,60000)), output_data=oneHot(train_y, 10, dict),
         loss_function=Categorical_Cross_Entropy_Loss, monitor=Classification, epochs=10, batch=128)
