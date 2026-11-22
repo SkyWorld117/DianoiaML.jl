@@ -1,5 +1,15 @@
 # Update Log
 
+### Update 5.0.0 - 11.22.2026
+- Raised the minimum Julia version to 1.13 and updated the dependencies. Run `scripts/init_env.sh` to set up the local development environment.
+- Added composable nested networks and the `Graph` API for branching, shared parameters, and multiple inputs and outputs.
+- Added multi-head self-attention and cross-attention, pre-norm Transformer blocks, LayerNorm, and GELU. Attention supports causal self-attention, Boolean key padding masks, and variable token lengths.
+- Added `TrainingState` for iterable batches, gradient accumulation, clipping, and parameter groups. Checkpoints can resume optimizer state and dropout while keeping layer backpropagation handwritten.
+- Added CPU support for `Float16`, `BFloat16`, `Float64`, and `BigFloat` alongside the default `Float32`. Model files and checkpoints preserve dtype and BigFloat bit precision.
+- Unified stochastic, minibatch, and full-batch gradient descent under `SGD.fit` with `batch`. Training now processes the final partial batch, and `Minibatch_GD.fit` delegates to SGD.
+- Removed `Softmax_CEL`. Use `Softmax` with `Categorical_Cross_Entropy_Loss` for the fused gradient. Fixed issues in convolution backpropagation, dropout, and GAN training.
+- Added reusable CPU convolution workspaces, threaded max pooling for large batches, and package precompilation for the convolutional training path across all supported dtypes.
+
 ### Update 0.4.7 - 06.06.2021
 - Fixed the UI of **GA**. 
 - Greatly optimized **GA** (about four times faster). 

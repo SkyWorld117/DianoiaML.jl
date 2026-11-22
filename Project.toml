@@ -1,7 +1,7 @@
 name = "DianoiaML"
 uuid = "0bf644f3-9992-48f5-8d6e-b7168dcf6b06"
 authors = ["Yi Zhu, @SkyWord117"]
-version = "0.4.7"
+version = "5.0.0"
 
 [deps]
 BFloat16s = "ab4f0b2a-ad5b-11e8-123f-65d77653426b"
