@@ -1,5 +1,5 @@
 using DianoiaML
-using LinearAlgebra: dot
+using LinearAlgebra: I, dot
 using Random: MersenneTwister, seed!
 using Test
 
@@ -24,4 +24,5 @@ end
     include("gradients.jl")
     include("training.jl")
     include("models.jl")
+    include("composition.jl")
 end

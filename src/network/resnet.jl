@@ -1,5 +1,5 @@
 module resnet
-    using ..DianoiaML: AbstractLayerStack, Hidden_Input_Layer, Hidden_Output_Layer, backward_layers!
+    using ..DianoiaML: AbstractLayer, AbstractLayerStack, Hidden_Input_Layer, Hidden_Output_Layer, add_layer!
     import ..DianoiaML: update!
 
     mutable struct ResNet <: AbstractLayerStack
@@ -11,9 +11,17 @@ module resnet
         ResNet() = new(Any[Hidden_Input_Layer(Float32[])], 0, 0.0, ())
     end
 
+    function ResNet(first::AbstractLayer, rest::AbstractLayer...)
+        model = ResNet()
+        add_layer!(model, first)
+        for layer in rest
+            add_layer!(model, layer)
+        end
+        return model
+    end
+
     function update!(model::ResNet, optimizer::String, α::Float64, parameters...; direction::Int=1)
-        backward_layers!(model.layers, 2:model.num_layer+1, model.layers[1].output,
-                         model.layers[end].δ, optimizer, α, parameters, direction)
+        update!(model, optimizer, model.layers[1].output, model.layers[end].δ, α, parameters, direction)
         return nothing
     end
 end

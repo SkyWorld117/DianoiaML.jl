@@ -8,12 +8,8 @@ function reset_optimizer!(layer::Union{Dense,Conv2D,TConv2D})
     end
 end
 
-reset_optimizer!(layer::Residual) = reset_optimizer!(layer.resnet)
-function reset_optimizer!(model::Union{Sequential,GAN,ResNet})
-    for i in 2:length(model.layers)-1
-        reset_optimizer!(model.layers[i])
-    end
-end
+reset_optimizer!(model::Union{AbstractLayerStack,GAN,Residual}) =
+    foreach(reset_optimizer!, layer_children(model))
 
 function sample_count(input, target)
     examples = size(input, ndims(input))

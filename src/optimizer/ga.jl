@@ -1,6 +1,7 @@
 module GA
     using Random: default_rng, shuffle!
-    using ..DianoiaML: Residual, initialize!, activate!, batch_buffer, batch_size_for, copy_examples!, sample_count
+    using ..DianoiaML: AbstractLayerStack, Residual, initialize!, activate!,
+                       batch_buffer, batch_size_for, copy_examples!, sample_count
 
     function fit(;models::Array, input_data::Array{Float32}, output_data::Array{Float32}, monitor,
                  α::Float64=0.01, num_copy::Int, epochs::Int=20, batch::Real=32, mini_batch::Union{Int,Nothing}=nothing,
@@ -75,6 +76,8 @@ module GA
             dest, a, b = child.layers[i], parent1.layers[i], parent2.layers[i]
             if dest isa Residual
                 recombine!(dest.resnet, a.resnet, b.resnet, probability, strength, rng)
+            elseif dest isa AbstractLayerStack
+                recombine!(dest, a, b, probability, strength, rng)
             end
             for field in (:filters, :weights, :biases)
                 if hasproperty(dest, field)

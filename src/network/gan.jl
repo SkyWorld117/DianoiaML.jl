@@ -1,7 +1,8 @@
 module gan
     using ..DianoiaML: Hidden_Input_Layer, initialize_layers!, forward_layers!, backward_layers!
+    using ..DianoiaML: prepare_layer, validate_layer_tree!, validate_stack_connections
     import ..DianoiaML
-    import ..DianoiaML: initialize!, activate!, update!
+    import ..DianoiaML: initialize!, activate!, update!, layer_children, validate_connections
 
     mutable struct GAN{F}
         layers::Vector{Any}
@@ -35,9 +36,12 @@ module gan
         (fieldnames(typeof(model))..., :initialize, :activate, :update,
          :activate_Generator, :activate_Discriminator, :add_Glayer, :add_Dlayer)
 
+    layer_children(model::GAN) = @view model.layers[2:model.num_Glayer+model.num_Dlayer+1]
+    validate_connections(model::GAN) = validate_stack_connections(layer_children(model))
+
     function add_generator_layer!(model::GAN, layer; args...)
         model.num_Dlayer == 0 || throw(ArgumentError("add generator layers before discriminator layers"))
-        next = layer(; input_shape=model.default_input_shape, args...)
+        next = prepare_layer(model, layer; args...)
         push!(model.layers, next)
         model.num_Glayer += 1
         model.G_range = 2:model.num_Glayer+1
@@ -45,7 +49,7 @@ module gan
     end
 
     function add_discriminator_layer!(model::GAN, layer; args...)
-        next = layer(; input_shape=model.default_input_shape, args...)
+        next = prepare_layer(model, layer; args...)
         insert!(model.layers, model.num_Glayer + model.num_Dlayer + 2, next)
         model.num_Dlayer += 1
         model.D_range = model.num_Glayer+2:model.num_Glayer+model.num_Dlayer+1
@@ -55,19 +59,22 @@ module gan
     function initialize!(model::GAN, mini_batch::Int)
         model.num_Glayer > 0 && model.num_Dlayer > 0 || throw(ArgumentError("GAN requires a generator and discriminator"))
         mini_batch > 0 || throw(ArgumentError("batch size must be positive"))
+        validate_layer_tree!(model)
         input_shape = (model.layers[2].input_shape..., mini_batch)
         if size(model.layers[1].output) != input_shape
             model.layers[1].output = zeros(Float32, input_shape)
         end
 
+        model.default_input_shape = model.layers[last(model.D_range)].output_shape
         output_shape = (model.default_input_shape..., mini_batch)
         return initialize_layers!(model.layers, last(model.D_range) + 1, output_shape, mini_batch)
     end
 
     function init_targets!(model::GAN, batch::Int)
-        model.default_input_shape in ((1,), (2,)) ||
+        output_shape = model.layers[last(model.D_range)].output_shape
+        output_shape in ((1,), (2,)) ||
             throw(DimensionMismatch("GAN training requires one or two discriminator outputs per example"))
-        outputs = only(model.default_input_shape)
+        outputs = only(output_shape)
         if !isdefined(model, :real_target) || size(model.real_target) != (outputs, batch)
             model.real_target = zeros(Float32, outputs, batch)
             model.real_target[end, :] .= 1f0

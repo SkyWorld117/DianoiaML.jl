@@ -65,7 +65,7 @@ module DianoiaML
 
     include("./network/sequential.jl")
     using .sequential:Sequential
-    export Sequential, Hidden_Output_Layer
+    export Sequential, Hidden_Output_Layer, add_layer!
     include("./network/gan.jl")
     using .gan:GAN
     export GAN

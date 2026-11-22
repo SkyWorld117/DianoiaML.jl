@@ -1,7 +1,11 @@
+output_activation(layer) = nothing
+output_activation(layer::Union{Dense,Conv2D,TConv2D,UpSampling2D}) = layer.activation_function
+output_activation(model::AbstractLayerStack) = output_activation(last_layer(model))
+
 function output_gradient!(delta, layer, target, loss)
     output = layer.output
     size(delta) == size(output) == size(target) || throw(DimensionMismatch("prediction and target shapes differ"))
-    activation = layer isa Union{Dense,Conv2D,TConv2D,UpSampling2D} ? layer.activation_function : nothing
+    activation = output_activation(layer)
     if loss === Categorical_Cross_Entropy_Loss && (activation === Softmax || activation === Softmax_CEL)
         # d/dlogits of cross-entropy also covers weighted and smoothed targets.
         classes = size(output, 1)

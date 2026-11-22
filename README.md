@@ -38,6 +38,30 @@ output or two outputs ordered fake, real.
 
 `TConv2D` retains the zero-insertion and padding geometry used by existing saved models.
 
+## Nested networks
+
+Pass configured layers or networks to `Sequential(...)`. A `Sequential` or
+`ResNet` block also works with `add_layer!(model, block)` and with the GAN
+generator and discriminator layer builders.
+
+```julia
+using DianoiaML
+
+function feedforward_block(width, hidden)
+    branch = Sequential()
+    add_layer!(branch, Dense; input_shape=(width,), layer_size=hidden, activation_function=ReLU)
+    add_layer!(branch, Dense; layer_size=width, activation_function=None)
+    return Residual(branch)
+end
+
+encoder = Sequential(feedforward_block(64, 128), feedforward_block(64, 128))
+model = Sequential(encoder, Dense(input_shape=(64,), layer_size=10, activation_function=Softmax_CEL))
+```
+
+Training the outer model updates the layers inside its blocks. `Residual(block)`
+requires matching input and output shapes. Call the block factory for each
+position because layers keep their own forward state for backpropagation.
+
 ## Features
 <details>
  <summaryClick me! ></summary>
