@@ -1,40 +1,45 @@
 module FlattenM
+    import ..DianoiaML: precision_type
+    using ..DianoiaML: checked_precision
     import ..DianoiaML: backward!, supports_backward
     import ..DianoiaML: AbstractLayer, initialize!, activate!, update!, save_layer
-    mutable struct Flatten{N} <: AbstractLayer
+    mutable struct Flatten{T<:AbstractFloat, N} <: AbstractLayer
         input_shape::Tuple
         output_shape::NTuple{1,Int}
 
-        output::Matrix{Float32}
-        δ::Array{Float32,N}
+        output::Matrix{T}
+        δ::Array{T,N}
 
-        function Flatten(;input_shape::Tuple)
+        function Flatten(;input_shape::Tuple, precision::Type{T}=Float32) where {T<:AbstractFloat}
+            checked_precision(T)
             output_shape = (prod(input_shape),)
 
-            new{length(input_shape) + 1}(input_shape, output_shape)
+            new{T,length(input_shape) + 1}(input_shape, output_shape)
         end
     end
 
-    function initialize!(layer::Flatten, mini_batch::Int)
+    precision_type(::Flatten{T}) where {T} = T
+
+    function initialize!(layer::Flatten{T}, mini_batch::Int) where {T}
         isdefined(layer, :output) && size(layer.output, ndims(layer.output)) == mini_batch && return
-        layer.output = zeros(Float32, layer.output_shape..., mini_batch)
-        layer.δ = zeros(Float32, layer.input_shape..., mini_batch)
+        layer.output = zeros(T, layer.output_shape..., mini_batch)
+        layer.δ = zeros(T, layer.input_shape..., mini_batch)
     end
 
-    function activate!(layer::Flatten, input::Array{Float32})
+    function activate!(layer::Flatten{T}, input::Array{T}) where {T}
         length(layer.output) == length(input) || throw(DimensionMismatch("unexpected reshape input size"))
         copyto!(layer.output, input)
     end
 
     supports_backward(::Flatten) = true
 
-    function backward!(layer::Flatten, input, δₗ₊₁)
+    function backward!(layer::Flatten{T}, input, δₗ₊₁) where {T}
         length(layer.δ) == length(δₗ₊₁) || throw(DimensionMismatch("unexpected reshape gradient size"))
         copyto!(layer.δ, δₗ₊₁)
         return layer.δ
     end
 
-    function update!(layer::Flatten, optimizer::String, input, delta, α::Float64, parameters::Tuple, direction::Int=1)
+    function update!(layer::Flatten{T}, optimizer::String, input, delta, α::Real, parameters::Tuple, direction::Int=1) where {T}
         backward!(layer, input, delta)
     end
 

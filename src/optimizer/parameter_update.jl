@@ -1,4 +1,6 @@
 function update_parameters!(optimizer, weights, gradient, first, second, rate, parameters)
+    A = eltype(gradient)
+    rate = A(rate)
     if optimizer == "SGD" || optimizer == "Minibatch_GD"
         weights .-= rate .* gradient
         return
@@ -7,11 +9,15 @@ function update_parameters!(optimizer, weights, gradient, first, second, rate, p
     belief = optimizer == "AdaBelief"
     (belief || optimizer == "Adam") || throw(ArgumentError("unknown optimizer $optimizer"))
     t, β₁, β₂, ϵ = parameters
-    decay1, decay2 = Float32(β₁), Float32(β₂)
-    gain1, gain2 = Float32(1 - β₁), Float32(1 - β₂)
-    step = rate / Float32(1 - β₁^t)
-    correction = Float32(inv(1 - β₂^t))
-    epsilon = Float32(ϵ)
+    # Preserve the configuration precision for bias correction, then update
+    # the moments in the gradient's accumulation type.
+    P = promote_type(A, typeof(β₁), typeof(β₂))
+    β₁p, β₂p = P(β₁), P(β₂)
+    decay1, decay2 = A(β₁p), A(β₂p)
+    gain1, gain2 = A(1 - β₁p), A(1 - β₂p)
+    step = rate / A(1 - β₁p^t)
+    correction = A(inv(1 - β₂p^t))
+    epsilon = A(ϵ)
     @inbounds @simd for i in eachindex(weights, gradient, first, second)
         g = gradient[i]
         m = decay1 * first[i] + gain1 * g

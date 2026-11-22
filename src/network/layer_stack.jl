@@ -1,11 +1,18 @@
 abstract type AbstractLayerStack <: AbstractLayer end
 
 mutable struct Hidden_Input_Layer
-    output::Array{Float32}
+    output::Array{<:AbstractFloat}
 end
 
 mutable struct Hidden_Output_Layer
-    δ::Array{Float32}
+    δ::Array{<:AbstractFloat}
+end
+
+function output_buffer!(output::Hidden_Output_Layer, prediction)
+    if size(output.δ) != size(prediction) || eltype(output.δ) !== eltype(prediction)
+        output.δ = similar(prediction)
+    end
+    return output.δ
 end
 
 @inline function Base.getproperty(model::AbstractLayerStack, name::Symbol)
@@ -56,9 +63,14 @@ end
 
 validate_connections(model::AbstractLayerStack) = validate_stack_connections(layer_children(model))
 
-materialize_layer(constructor, shape; args...) = constructor(; input_shape=something(shape, ()), args...)
+accepts_precision(constructor) = false
+function materialize_layer(constructor, shape, precision; args...)
+    input_shape = something(shape, ())
+    return accepts_precision(constructor) ? constructor(; input_shape, precision, args...) :
+           constructor(; input_shape, args...)
+end
 
-function materialize_layer(layer::AbstractLayer, shape; args...)
+function materialize_layer(layer::AbstractLayer, shape, precision; args...)
     isempty(args) || throw(ArgumentError("configure a layer before adding the instance to a model"))
     return layer
 end
@@ -70,7 +82,7 @@ function prepare_layer(model, layer; args...)
     existing = layer_children(model)
     previous = isempty(existing) ? nothing : last(existing)
     previous_shape = previous === nothing ? nothing : previous.output_shape
-    next = materialize_layer(layer, previous_shape; args...)
+    next = materialize_layer(layer, previous_shape, model_precision(model); args...)
     next isa AbstractLayerStack && next.num_layer == 0 &&
         throw(ArgumentError("a nested network requires at least one layer"))
     validate_layer_tree!(seen, next)
@@ -93,11 +105,12 @@ function add_layer!(model::AbstractLayerStack, layer; args...)
     model.default_input_shape = next.output_shape
 end
 
-function initialize_layers!(layers, output_index, output_shape, batch)
+function initialize_layers!(layers, output_index, output_shape, batch, precision)
+    T = something(precision_type(layers[output_index-1]), precision)
     if length(layers) < output_index
-        push!(layers, Hidden_Output_Layer(zeros(Float32, output_shape)))
-    elseif size(layers[output_index].δ) != output_shape
-        layers[output_index].δ = zeros(Float32, output_shape)
+        push!(layers, Hidden_Output_Layer(zeros(T, output_shape)))
+    elseif size(layers[output_index].δ) != output_shape || eltype(layers[output_index].δ) !== T
+        layers[output_index].δ = zeros(T, output_shape)
     end
     for i in 2:output_index-1
         initialize!(layers[i], batch)
@@ -109,7 +122,8 @@ function initialize!(model::AbstractLayerStack, batch::Int)
     batch > 0 || throw(ArgumentError("batch size must be positive"))
     validate_layer_tree!(model)
     model.default_input_shape = model.output_shape
-    return initialize_layers!(model.layers, model.num_layer + 2, (model.default_input_shape..., batch), batch)
+    return initialize_layers!(model.layers, model.num_layer + 2, (model.default_input_shape..., batch),
+                              batch, model_precision(model))
 end
 
 function forward_layers!(layers, indices, input, training)
@@ -120,11 +134,12 @@ function forward_layers!(layers, indices, input, training)
 end
 
 function activate_layer(model::AbstractLayerStack, data, training)
+    data = layer_input(model, data)
     model.layers[1].output = data
     return forward_layers!(model.layers, 2:model.num_layer+1, data, training)
 end
 
-activate!(model::AbstractLayerStack, data::Array{Float32}; training::Bool=false) =
+activate!(model::AbstractLayerStack, data::AbstractArray{<:AbstractFloat}; training::Bool=false) =
     activate_layer(model, data, training)
 
 supports_backward(model::AbstractLayerStack) = all(supports_backward, layer_children(model))
@@ -136,14 +151,15 @@ end
 function propagate_layers!(layers, indices, input, delta)
     for i in Iterators.reverse(indices)
         previous = i == first(indices) ? input : layers[i-1].output
-        delta = backward!(layers[i], previous, delta)
+        delta = propagate_layer!(layers[i], previous, delta)
     end
     return delta
 end
 
-function update!(model::AbstractLayerStack, optimizer::String, input::Array{Float32}, delta,
-                 α::Float64, parameters::Tuple, direction::Int=1)
-    return backward_layers!(model.layers, 2:model.num_layer+1, input, delta, optimizer, α, parameters, direction)
+function update!(model::AbstractLayerStack, optimizer::String, input::Array{<:AbstractFloat}, delta,
+                 α::Real, parameters::Tuple, direction::Int=1)
+    return backward_layers!(model.layers, 2:model.num_layer+1, layer_input(model, input),
+                            delta, optimizer, α, parameters, direction)
 end
 
 function backward_layers!(layers, indices, first_input, delta, optimizer, α, parameters, direction)

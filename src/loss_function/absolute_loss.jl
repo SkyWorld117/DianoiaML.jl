@@ -1,9 +1,9 @@
 module Absolute_Loss
-    function func(output::Array{Float32}, target::Array{Float32})
+    function func(output::AbstractArray{<:AbstractFloat}, target::AbstractArray{<:AbstractFloat})
         return abs.(output .- target)
     end
 
-    function prop!(delta::Array{Float32}, output::Array{Float32}, target::Array{Float32})
+    function prop!(delta::AbstractArray{<:AbstractFloat}, output::AbstractArray{<:AbstractFloat}, target::AbstractArray{<:AbstractFloat})
         delta .= sign.(output .- target)
     end
 end

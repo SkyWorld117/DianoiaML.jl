@@ -1,7 +1,9 @@
 module Absolute
-    function func(output::Array{Float32}, target::Array{Float32})
+    using ..DianoiaML: accumulation_type
+
+    function func(output::AbstractArray{<:AbstractFloat}, target::AbstractArray{<:AbstractFloat})
         size(output) == size(target) || throw(DimensionMismatch("prediction and target shapes differ"))
-        loss = 0.0
+        loss = zero(promote_type(Float64, accumulation_type(eltype(output)), accumulation_type(eltype(target))))
         @inbounds @simd for i in eachindex(output, target)
             loss += abs(output[i] - target[i])
         end

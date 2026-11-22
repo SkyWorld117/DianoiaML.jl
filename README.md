@@ -20,7 +20,7 @@ The setup script develops the local checkout and installs its dependencies in th
 
 ## Training
 
-Supply `Float32` arrays with examples in the last dimension. Each epoch visits every
+Supply floating-point arrays with examples in the last dimension. Each epoch visits every
 example, including the final partial batch. Use `SGD.fit` with `batch=1` for
 stochastic updates, a larger batch for minibatches, or
 `batch=size(input_data, ndims(input_data))` for full-batch gradient descent.
@@ -39,6 +39,31 @@ output or two outputs ordered fake, real.
 `Softmax` uses the fused gradient with `Categorical_Cross_Entropy_Loss`.
 
 `TConv2D` retains the zero-insertion and padding geometry used by existing saved models.
+
+## Floating-point precision
+
+Models and layers default to `Float32`. Pass `precision` to use `Float16`,
+`BFloat16`, `Float64`, or `BigFloat` on the CPU. Layers created by a
+model's layer builder inherit its precision. A configured layer keeps its own
+precision, and model inputs are converted at each layer boundary as needed.
+Float16 and BFloat16 use Float32 for matrix and convolution accumulation,
+parameter gradients, and optimizer moments.
+
+```julia
+using DianoiaML
+
+setprecision(BigFloat, 384) do
+    model = Sequential(; precision=BigFloat)
+    add_layer!(model, Dense; input_shape=(2,), layer_size=1, activation_function=None)
+    state = TrainingState(model, Optimizer(:Adam; precision=BigFloat))
+    fit!(state, [(ones(BigFloat, 2, 4), zeros(BigFloat, 1, 4))];
+         loss_function=Mean_Squared_Error)
+end
+```
+
+Run BigFloat initialization and training at the desired bit precision using
+Julia's `setprecision`. Model files and checkpoints preserve the five
+supported dtypes and the bit precision of individual BigFloat values.
 
 ## Nested networks
 
@@ -106,8 +131,8 @@ layer while keeping the invocations' forward buffers separate. Build a new
 training state when changing architecture or replacing parameter arrays.
 
 `fit!` accepts any iterable of `(inputs, targets)` or a zero-argument factory
-that creates one for each epoch. Float inputs can be CPU array views and are
-converted to Float32 as needed. Tuple inputs can also contain integer or
+that creates one for each epoch. Floating-point inputs can be CPU array views
+and are converted to the model's precision as needed. Tuple inputs can also contain integer or
 Boolean tensors, such as masks. All inputs use the last axis for examples.
 Dense applies its projection along the first axis and accepts changing token
 lengths between those axes.

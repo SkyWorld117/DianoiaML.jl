@@ -11,13 +11,13 @@ struct Node{L,P<:Tuple}
 end
 
 """
-    Graph(input_shapes, nodes...; outputs)
+    Graph(input_shapes, nodes...; outputs, precision)
 
 A topologically ordered graph. For two inputs, indices 1 and 2 are inputs and
 index 3 is the first node. Nodes with several parents receive a tuple. Multiple
 selected outputs are returned as a tuple in the order specified.
 """
-mutable struct Graph{N<:Tuple,S<:Tuple,O<:Tuple} <: AbstractLayer
+mutable struct Graph{T<:AbstractFloat,N<:Tuple,S<:Tuple,O<:Tuple} <: AbstractLayer
     nodes::N
     input_shapes::S
     outputs::O
@@ -28,7 +28,8 @@ mutable struct Graph{N<:Tuple,S<:Tuple,O<:Tuple} <: AbstractLayer
 end
 
 function Graph(input_shapes::Tuple{Vararg{Tuple}}, nodes::Node...;
-               outputs::Tuple=(length(input_shapes) + length(nodes),))
+               outputs::Tuple=(length(input_shapes) + length(nodes),),
+               precision::Type{T}=isempty(nodes) ? Float32 : model_precision(first(nodes).layer)) where {T<:AbstractFloat}
     ninputs = length(input_shapes)
     ninputs > 0 && !isempty(nodes) || throw(ArgumentError("a graph requires inputs and nodes"))
     total = ninputs + length(nodes)
@@ -55,11 +56,15 @@ function Graph(input_shapes::Tuple{Vararg{Tuple}}, nodes::Node...;
         end
     end
 
-    graph = Graph(nodes, input_shapes, outputs, graph_inputs(shapes, ntuple(identity, ninputs)),
+    checked_precision(T)
+    graph = Graph{T,typeof(nodes),typeof(input_shapes),typeof(outputs)}(
+                  nodes, input_shapes, outputs, graph_inputs(shapes, ntuple(identity, ninputs)),
                   graph_inputs(shapes, outputs), Vector{Union{Array,Tuple}}(undef, total), ())
     validate_layer_tree!(graph)
     return graph
 end
+
+precision_type(::Graph{T}) where {T} = T
 
 graph_inputs(values, indices::Tuple{Int}) = values[only(indices)]
 graph_inputs(values, indices::Tuple) = map(i -> values[i], indices)
@@ -76,6 +81,7 @@ end
 activate!(graph::Graph, input; training::Bool=false) = activate_layer(graph, input, training)
 
 function activate_layer(graph::Graph, input, training)
+    input = layer_input(graph, input)
     ninputs = length(graph.input_shapes)
     inputs = ninputs == 1 ? (input,) : input
     inputs isa Tuple && length(inputs) == ninputs || throw(DimensionMismatch("graph input count differs"))
@@ -115,14 +121,14 @@ function backward!(graph::Graph, input, upstream)
     outputs isa Tuple && length(outputs) == length(graph.outputs) ||
         throw(DimensionMismatch("graph output cotangent count differs"))
     for (i, delta) in zip(graph.outputs, outputs)
-        cotangents[i] = merge_cotangents(cotangents[i], delta)
+        cotangents[i] = merge_cotangents(cotangents[i], cotangent_as(graph.values[i], delta))
     end
     ninputs = length(graph.input_shapes)
     for i in length(graph.nodes):-1:1
         node = graph.nodes[i]
         delta = cotangents[ninputs + i]
         delta === nothing && (delta = zero_cotangent(graph.values[ninputs + i]))
-        gradients = backward!(node.layer, graph_inputs(graph.values, node.parents), delta)
+        gradients = propagate_layer!(node.layer, graph_inputs(graph.values, node.parents), delta)
         parts = length(node.parents) == 1 ? (gradients,) : gradients
         parts isa Tuple && length(parts) == length(node.parents) ||
             throw(DimensionMismatch("a multi-input layer must return one cotangent per input"))
@@ -134,20 +140,22 @@ function backward!(graph::Graph, input, upstream)
 end
 
 """Add two or more equally shaped graph inputs elementwise."""
-mutable struct Add <: AbstractLayer
+mutable struct Add{T<:AbstractFloat} <: AbstractLayer
     output_shape::Tuple
-    output::Array{Float32}
-    Add(shape::Tuple) = new(shape)
+    output::Array{T}
+    Add(shape::Tuple; precision::Type{T}=Float32) where {T<:AbstractFloat} =
+        new{checked_precision(T)}(shape)
 end
 
+precision_type(::Add{T}) where {T} = T
 initialize!(::Add, ::Int) = nothing
 supports_backward(::Add) = true
 
-function activate!(layer::Add, input::Tuple)
+function activate!(layer::Add{T}, input::Tuple) where {T}
     length(input) >= 2 || throw(ArgumentError("Add requires at least two inputs"))
     all(x -> size(x) == size(first(input)), input) || throw(DimensionMismatch("Add input shapes differ"))
     if !isdefined(layer, :output) || size(layer.output) != size(first(input))
-        layer.output = similar(first(input))
+        layer.output = similar(first(input), T)
     end
     copyto!(layer.output, first(input))
     for x in Base.tail(input)
@@ -179,16 +187,19 @@ backward!(layer::Select, input::Tuple, delta) = ntuple(i -> i == layer.index ? d
 """Create another Dense invocation with the same trainable arrays and independent buffers."""
 function share_parameters(layer::Dense)
     shared = Dense(input_shape=layer.input_shape, layer_size=layer.layer_size,
-                   activation_function=layer.activation_function, randomization=false)
+                   activation_function=layer.activation_function, randomization=false,
+                   precision=model_precision(layer))
     shared.weights = layer.weights
     shared.biases = layer.biases
     return shared
 end
 
-function share_parameters(layer::T) where {T<:Union{Conv2D,TConv2D}}
-    shared = T(input_shape=layer.input_shape, filter=layer.filter, padding=layer.padding,
+function share_parameters(layer::Union{Conv2D,TConv2D})
+    constructor = layer isa Conv2D ? Conv2D : TConv2D
+    shared = constructor(input_shape=layer.input_shape, filter=layer.filter, padding=layer.padding,
                kernel_size=layer.kernel_size, strides=layer.strides,
-               activation_function=layer.activation_function, randomization=false)
+               activation_function=layer.activation_function, randomization=false,
+               precision=model_precision(layer))
     shared.filters = layer.filters
     shared.biases = layer.biases
     return shared

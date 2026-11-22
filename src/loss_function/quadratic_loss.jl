@@ -1,9 +1,9 @@
 module Quadratic_Loss
-    function func(output::Array{Float32}, target::Array{Float32})
+    function func(output::AbstractArray{<:AbstractFloat}, target::AbstractArray{<:AbstractFloat})
         return (output .- target).^2
     end
 
-    function prop!(delta::Array{Float32}, output::Array{Float32}, target::Array{Float32})
-        delta .= 2f0 .* (output .- target)
+    function prop!(delta::AbstractArray{<:AbstractFloat}, output::AbstractArray{<:AbstractFloat}, target::AbstractArray{<:AbstractFloat})
+        delta .= eltype(delta)(2) .* (output .- target)
     end
 end

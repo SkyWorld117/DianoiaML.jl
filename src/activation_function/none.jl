@@ -1,9 +1,9 @@
 module None
-    function func!(output::Array{Float32}, values::Array{Float32})
+    function func!(output::Array{T}, values::Array{T}) where {T<:AbstractFloat}
         copyto!(output, values)
     end
 
-    function get_∇biases!(gradient::Array{Float32}, values::Array{Float32}, delta::Array{Float32})
+    function get_∇biases!(gradient::Array{T}, values::Array{T}, delta::Array{T}) where {T<:AbstractFloat}
         copyto!(gradient, delta)
     end
 

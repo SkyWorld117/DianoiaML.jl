@@ -1,11 +1,16 @@
 module Mean_Squared_Error
-    features(output) = Float32(ndims(output) == 1 ? length(output) : length(output) ÷ size(output, ndims(output)))
+    using ..DianoiaML: accumulation_type
+    features(output) = accumulation_type(eltype(output))(ndims(output) == 1 ? length(output) : length(output) ÷ size(output, ndims(output)))
 
-    function func(output::Array{Float32}, target::Array{Float32})
-        return (output .- target).^2 ./ features(output)
+    function func(output::AbstractArray{<:AbstractFloat}, target::AbstractArray{<:AbstractFloat})
+        divisor = features(output)
+        A = typeof(divisor)
+        return ((x, y) -> abs2(A(x) - A(y)) / divisor).(output, target)
     end
 
-    function prop!(delta::Array{Float32}, output::Array{Float32}, target::Array{Float32})
-        delta .= (2f0 / features(output)) .* (output .- target)
+    function prop!(delta::AbstractArray{<:AbstractFloat}, output::AbstractArray{<:AbstractFloat}, target::AbstractArray{<:AbstractFloat})
+        A = accumulation_type(eltype(delta))
+        scale = A(2) / features(output)
+        delta .= ((x, y) -> scale * (A(x) - A(y))).(output, target)
     end
 end

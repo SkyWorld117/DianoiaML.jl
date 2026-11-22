@@ -4,7 +4,7 @@ reset_optimizer!(model) = nothing
 
 function reset_optimizer!(layer::Union{Dense,Conv2D,TConv2D})
     for state in (layer.Vdw, layer.Sdw, layer.Vdb, layer.Sdb)
-        fill!(state, 0f0)
+        fill!(state, zero(eltype(state)))
     end
 end
 
@@ -44,7 +44,7 @@ function fit_gradient!(model, input_data, output_data, loss, monitor, optimizer,
     if !isempty(adaptive_parameters)
         β₁, β₂, ϵ = adaptive_parameters
         0 <= β₁ < 1 && 0 <= β₂ < 1 || throw(ArgumentError("optimizer decay rates must be in [0, 1)"))
-        0 < Float32(ϵ) < Inf32 || throw(ArgumentError("optimizer epsilon must be positive and finite"))
+        0 < ϵ < Inf || throw(ArgumentError("optimizer epsilon must be positive and finite"))
     end
 
     initialize!(model, batch_size)
@@ -85,7 +85,7 @@ function fit_gradient!(model, input_data, output_data, loss, monitor, optimizer,
                 prediction = forward!(state, current_x)
                 backward!(state, current_y; loss_function=loss)
                 step!(state)
-                score += monitor.func(prediction, current_y)
+                score += monitor.func(prediction, cotangent_as(prediction, current_y))
             end
         end
         if state === nothing

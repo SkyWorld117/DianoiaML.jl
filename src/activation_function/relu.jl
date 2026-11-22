@@ -1,10 +1,10 @@
 module ReLU
-    function func!(output::Array{Float32}, values::Array{Float32})
-        output .= max.(0f0, values)
+    function func!(output::Array{T}, values::Array{T}) where {T<:AbstractFloat}
+        output .= max.(zero(T), values)
     end
 
-    function get_∇biases!(gradient::Array{Float32}, values::Array{Float32}, delta::Array{Float32})
-        gradient .= ifelse.(values .> 0f0, delta, 0f0)
+    function get_∇biases!(gradient::Array{T}, values::Array{T}, delta::Array{T}) where {T<:AbstractFloat}
+        gradient .= ifelse.(values .> zero(T), delta, zero(T))
     end
 
     get_name() = "ReLU"

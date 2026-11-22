@@ -37,11 +37,18 @@ Base.propertynames(layer::AbstractLayer, private::Bool=false) =
     (fieldnames(typeof(layer))..., :initialize, :activate, :update, :save_layer, :load_layer)
 
 function activate_layer(layer, input, training)
-    activate!(layer, input)
+    activate!(layer, layer_input(layer, input))
     return layer.output
 end
 
+function propagate_layer!(layer, input, delta)
+    derivative = backward!(layer, layer_input(layer, input), cotangent_as(layer.output, delta))
+    return cotangent_as(input, derivative)
+end
+
 function update_layer!(layer, optimizer, input, delta, α, parameters, direction)
+    input = layer_input(layer, input)
+    delta = cotangent_as(layer.output, delta)
     if direction == 1
         update!(layer, optimizer, input, delta, α, parameters)
     else

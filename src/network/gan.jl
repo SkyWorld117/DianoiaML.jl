@@ -2,24 +2,27 @@ module gan
     using ..DianoiaML: Hidden_Input_Layer, initialize_layers!, forward_layers!, backward_layers!
     using ..DianoiaML: prepare_layer, validate_layer_tree!, validate_stack_connections
     import ..DianoiaML
-    import ..DianoiaML: initialize!, activate!, update!, layer_children, validate_connections
+    using ..DianoiaML: checked_precision, output_buffer!
+    import ..DianoiaML: precision_type, initialize!, activate!, update!, layer_children, validate_connections
 
-    mutable struct GAN{F}
+    mutable struct GAN{F,T<:AbstractFloat}
         layers::Vector{Any}
         noise_generator::F
         num_Glayer::Int
         num_Dlayer::Int
-        loss::Float64
+        loss::AbstractFloat
         default_input_shape::Tuple
         G_range::UnitRange{Int}
         D_range::UnitRange{Int}
-        real_target::Matrix{Float32}
-        fake_target::Matrix{Float32}
+        real_target::Matrix{T}
+        fake_target::Matrix{T}
 
-        function GAN(noise_generator::F) where {F}
-            new{F}(Any[Hidden_Input_Layer(Float32[])], noise_generator, 0, 0, 0.0, (), 2:1, 2:1)
+        function GAN(noise_generator::F; precision::Type{T}=Float32) where {F,T<:AbstractFloat}
+            new{F,T}(Any[Hidden_Input_Layer(checked_precision(T)[])], noise_generator, 0, 0, 0.0, (), 2:1, 2:1)
         end
     end
+
+    precision_type(::GAN{F,T}) where {F,T} = T
 
     @inline function Base.getproperty(model::GAN, name::Symbol)
         name === :initialize && return initialize!
@@ -56,30 +59,30 @@ module gan
         model.default_input_shape = next.output_shape
     end
 
-    function initialize!(model::GAN, mini_batch::Int)
+    function initialize!(model::GAN{F,T}, mini_batch::Int) where {F,T}
         model.num_Glayer > 0 && model.num_Dlayer > 0 || throw(ArgumentError("GAN requires a generator and discriminator"))
         mini_batch > 0 || throw(ArgumentError("batch size must be positive"))
         validate_layer_tree!(model)
         input_shape = (model.layers[2].input_shape..., mini_batch)
         if size(model.layers[1].output) != input_shape
-            model.layers[1].output = zeros(Float32, input_shape)
+            model.layers[1].output = zeros(T, input_shape)
         end
 
         model.default_input_shape = model.layers[last(model.D_range)].output_shape
         output_shape = (model.default_input_shape..., mini_batch)
-        return initialize_layers!(model.layers, last(model.D_range) + 1, output_shape, mini_batch)
+        return initialize_layers!(model.layers, last(model.D_range) + 1, output_shape, mini_batch, T)
     end
 
-    function init_targets!(model::GAN, batch::Int)
+    function init_targets!(model::GAN{F,T}, batch::Int) where {F,T}
         output_shape = model.layers[last(model.D_range)].output_shape
         output_shape in ((1,), (2,)) ||
             throw(DimensionMismatch("GAN training requires one or two discriminator outputs per example"))
         outputs = only(output_shape)
         if !isdefined(model, :real_target) || size(model.real_target) != (outputs, batch)
-            model.real_target = zeros(Float32, outputs, batch)
-            model.real_target[end, :] .= 1f0
-            model.fake_target = zeros(Float32, outputs, batch)
-            outputs == 2 && (model.fake_target[1, :] .= 1f0)
+            model.real_target = zeros(T, outputs, batch)
+            model.real_target[end, :] .= one(T)
+            model.fake_target = zeros(T, outputs, batch)
+            outputs == 2 && (model.fake_target[1, :] .= one(T))
         end
     end
 
@@ -94,7 +97,7 @@ module gan
         return forward_layers!(model.layers, model.G_range, input, training)
     end
 
-    function activate_discriminator!(model::GAN, data::Array{Float32}; training::Bool=false)
+    function activate_discriminator!(model::GAN, data::Array{<:AbstractFloat}; training::Bool=false)
         return forward_layers!(model.layers, model.D_range, data, training)
     end
 
@@ -106,13 +109,12 @@ module gan
     discriminator_step(::Tuple{}, offset) = ()
     discriminator_step(parameters, offset) = (2 * parameters[1] + offset, Base.tail(parameters)...)
 
-    function update!(model::GAN, current_input_data::Array{Float32}, _current_output_data::Array{Float32},
-                        loss_function, monitor, optimizer::String, α::Float64, parameters...)
+    function update!(model::GAN, current_input_data::Array{<:AbstractFloat}, _current_output_data::Array{<:AbstractFloat},
+                        loss_function, monitor, optimizer::String, α::Real, parameters...)
         init_targets!(model, size(current_input_data, ndims(current_input_data)))
         last_layer = model.layers[last(model.D_range)]
-        output_delta = model.layers[end].δ
-
         real = activate_discriminator!(model, current_input_data; training=true)
+        output_delta = output_buffer!(model.layers[end], real)
         model.loss += monitor.func(real, model.real_target)
         delta = DianoiaML.output_gradient!(output_delta, last_layer, model.real_target, loss_function)
         backward_layers!(model.layers, model.D_range, current_input_data, delta, optimizer, α, discriminator_step(parameters, -1), 1)

@@ -1,35 +1,40 @@
 module MaxPooling2DM
+    import ..DianoiaML: precision_type
+    using ..DianoiaML: checked_precision
     import ..DianoiaML: backward!, supports_backward
     import ..DianoiaML: AbstractLayer, initialize!, activate!, update!, save_layer
-    mutable struct MaxPooling2D <: AbstractLayer
+    mutable struct MaxPooling2D{T<:AbstractFloat} <: AbstractLayer
         input_shape::NTuple{3,Int}
         output_shape::NTuple{3,Int}
         pool_size::NTuple{2,Int}
         strides::NTuple{2,Int}
 
         index::Array{Int,4}
-        output::Array{Float32,4}
-        δ::Array{Float32,4}
+        output::Array{T,4}
+        δ::Array{T,4}
 
-        function MaxPooling2D(;input_shape::Tuple, pool_size::NTuple{2,Int}, strides::NTuple{2,Int}=pool_size)
+        function MaxPooling2D(;input_shape::Tuple, pool_size::NTuple{2,Int}, strides::NTuple{2,Int}=pool_size, precision::Type{T}=Float32) where {T<:AbstractFloat}
+            checked_precision(T)
             length(input_shape) == 3 && all(>(0), input_shape) && all(>(0), strides) &&
                 all(d -> 0 < pool_size[d] <= input_shape[d], 1:2) ||
                 throw(ArgumentError("invalid pooling input dimensions, window or strides"))
             pool_num_per_col = (input_shape[1]-pool_size[1])÷strides[1]+1
             pool_num_per_row = (input_shape[2]-pool_size[2])÷strides[2]+1
             output_shape = (pool_num_per_col, pool_num_per_row, input_shape[3])
-            new(input_shape, output_shape, pool_size, strides)
+            new{T}(input_shape, output_shape, pool_size, strides)
         end
     end
 
-    function initialize!(layer::MaxPooling2D, mini_batch::Int)
+    precision_type(::MaxPooling2D{T}) where {T} = T
+
+    function initialize!(layer::MaxPooling2D{T}, mini_batch::Int) where {T}
         isdefined(layer, :output) && size(layer.output, 4) == mini_batch && return
         layer.index = zeros(Int, layer.output_shape..., mini_batch)
-        layer.output = zeros(Float32, layer.output_shape..., mini_batch)
-        layer.δ = zeros(Float32, layer.input_shape..., mini_batch)
+        layer.output = zeros(T, layer.output_shape..., mini_batch)
+        layer.δ = zeros(T, layer.input_shape..., mini_batch)
     end
 
-    function activate!(layer::MaxPooling2D, input::Array{Float32,4})
+    function activate!(layer::MaxPooling2D{T}, input::Array{T,4}) where {T}
         size(input) == size(layer.δ) || throw(DimensionMismatch("unexpected pooling input size"))
         sx, sy = layer.strides
         px, py = layer.pool_size
@@ -46,8 +51,8 @@ module MaxPooling2DM
 
     supports_backward(::MaxPooling2D) = true
 
-    function backward!(layer::MaxPooling2D, input, δₗ₊₁)
-        fill!(layer.δ, 0f0)
+    function backward!(layer::MaxPooling2D{T}, input, δₗ₊₁) where {T}
+        fill!(layer.δ, zero(T))
         # Overlapping windows can select the same input element.
         for i in eachindex(δₗ₊₁, layer.index)
             layer.δ[layer.index[i]] += δₗ₊₁[i]
@@ -55,7 +60,7 @@ module MaxPooling2DM
         return layer.δ
     end
 
-    function update!(layer::MaxPooling2D, optimizer::String, input, delta, α::Float64, parameters::Tuple, direction::Int=1)
+    function update!(layer::MaxPooling2D{T}, optimizer::String, input, delta, α::Real, parameters::Tuple, direction::Int=1) where {T}
         backward!(layer, input, delta)
     end
 

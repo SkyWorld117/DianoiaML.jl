@@ -1,25 +1,29 @@
 using Random: Xoshiro, default_rng
 
 """Configure the parameter update independently of the model and backward pass."""
-struct Optimizer
+struct Optimizer{T<:AbstractFloat}
     kind::String
-    α::Float64
-    beta1::Float64
-    beta2::Float64
-    epsilon::Float64
+    α::T
+    beta1::T
+    beta2::T
+    epsilon::T
 
-    function Optimizer(kind::Symbol; α::Real=(kind === :SGD ? 0.01 : 0.001),
-                       beta1::Real=0.9, beta2::Real=0.999, epsilon::Real=1e-8)
+    function Optimizer(kind::Symbol; α::Real=(kind === :SGD ? 1//100 : 1//1000),
+                       beta1::Real=9//10, beta2::Real=999//1000, epsilon::Real=1//100000000,
+                       precision::Type{T}=promote_type(typeof(float(α)), typeof(float(beta1)),
+                                                      typeof(float(beta2)), typeof(float(epsilon)))) where {T<:AbstractFloat}
         kind in (:SGD, :Adam, :AdaBelief) || throw(ArgumentError("unknown optimizer $kind"))
-        validate_rate(α)
-        0 <= beta1 < 1 && 0 <= beta2 < 1 || throw(ArgumentError("optimizer decays must be in [0, 1)"))
-        0 < Float32(epsilon) < Inf32 || throw(ArgumentError("optimizer epsilon must be positive and finite"))
-        new(String(kind), α, beta1, beta2, epsilon)
+        A = accumulation_type(checked_precision(T))
+        rate, decay1, decay2, eps = map(x -> convert(A, x), (α, beta1, beta2, epsilon))
+        validate_rate(rate)
+        0 <= decay1 < 1 && 0 <= decay2 < 1 || throw(ArgumentError("optimizer decays must be in [0, 1)"))
+        0 < eps < Inf || throw(ArgumentError("optimizer epsilon must be positive and finite"))
+        new{A}(String(kind), rate, decay1, decay2, eps)
     end
 end
 
 function validate_rate(rate)
-    0 <= Float32(rate) < Inf32 || throw(ArgumentError("learning rate must be nonnegative and finite"))
+    0 <= rate < Inf || throw(ArgumentError("learning rate must be nonnegative and finite"))
 end
 
 function walk_layers(f, layer, prefix="")
@@ -30,7 +34,7 @@ function walk_layers(f, layer, prefix="")
 end
 
 function parameter_occurrences(model)
-    entries = Tuple{String,Array{Float32},Array{Float32}}[]
+    entries = Tuple{String,Array{<:AbstractFloat},Array{<:AbstractFloat}}[]
     walk_layers(model) do layer, prefix
         for (name, (value, gradient)) in pairs(parameter_gradients(layer))
             size(value) == size(gradient) || throw(DimensionMismatch("parameter and gradient shapes differ at $prefix$name"))
@@ -66,25 +70,25 @@ function legacy_step!(layers, indices, optimizer, α, settings, direction)
         end
     end
     for (value, (gradient, first, second)) in updates
-        update_parameters!(optimizer, value, gradient, first, second, Float32(α * direction), settings)
+        update_parameters!(optimizer, value, gradient, first, second, α * direction, settings)
     end
 end
 
-mutable struct ParameterState{A<:Array{Float32}}
+mutable struct ParameterState{A<:Array{<:AbstractFloat},G<:Array{<:AbstractFloat}}
     value::A
-    gradient::A
-    first::Union{A,Nothing}
-    second::Union{A,Nothing}
-    α::Float64
+    gradient::G
+    first::Union{G,Nothing}
+    second::Union{G,Nothing}
+    α::AbstractFloat
     trainable::Bool
     step::Int
 end
 
-function ParameterState(value::Array{Float32}, optimizer)
-    gradient = zero(value)
-    first = optimizer.kind == "SGD" ? nothing : zero(value)
-    second = optimizer.kind == "SGD" ? nothing : zero(value)
-    return ParameterState{typeof(value)}(value, gradient, first, second, optimizer.α, true, 0)
+function ParameterState(value::Array{<:AbstractFloat}, optimizer)
+    gradient = zeros(accumulation_type(eltype(value)), size(value))
+    first = optimizer.kind == "SGD" ? nothing : zero(gradient)
+    second = optimizer.kind == "SGD" ? nothing : zero(gradient)
+    return ParameterState{typeof(value),typeof(gradient)}(value, gradient, first, second, optimizer.α, true, 0)
 end
 
 """
@@ -100,7 +104,7 @@ mutable struct TrainingState{M}
     slots::Vector{ParameterState}
     names::Vector{String}
     index::IdDict{Any,Int}
-    sources::Vector{Tuple{Int,Array{Float32}}}
+    sources::Vector{Tuple{Int,Array{<:AbstractFloat}}}
     seed::UInt64
     forwards::UInt64
     samples::Int
@@ -116,7 +120,7 @@ function TrainingState(model, optimizer::Optimizer; seed::Integer=rand(default_r
     slots = ParameterState[]
     names = String[]
     index = IdDict{Any,Int}()
-    sources = Tuple{Int,Array{Float32}}[]
+    sources = Tuple{Int,Array{<:AbstractFloat}}[]
     gradient_buffers = Base.IdSet()
     for (name, value, gradient) in parameter_occurrences(model)
         (value === gradient || gradient in gradient_buffers) &&
@@ -142,15 +146,14 @@ function set_group!(state::TrainingState, group; α=nothing, trainable::Union{Bo
     indices = unique([state.index[value] for value in values])
     for i in indices
         slot = state.slots[i]
-        α === nothing || (slot.α = α)
+        α === nothing || (slot.α = float(α))
         trainable === nothing || (slot.trainable = trainable)
     end
     return state
 end
 
-cpu_batch(x::Array{Float32}) = x
-cpu_batch(x::AbstractArray{<:AbstractFloat}) = Float32.(Array(x))
-cpu_batch(x::AbstractArray{<:Integer}) = Array(x)
+cpu_batch(x::Array) = x
+cpu_batch(x::AbstractArray{<:Real}) = Array(x)
 cpu_batch(x::Tuple) = map(cpu_batch, x)
 
 function batch_examples(x::Array)
@@ -169,12 +172,12 @@ end
     forward!(state, input; training=true)
 
 Run a batch of CPU tensors, keeping the forward buffers for one backward call
-when training. Floating-point inputs are converted to Float32 as needed.
+when training. Floating-point inputs are converted to the model's precision.
 """
 function forward!(state::TrainingState, input; training::Bool=true)
     state.input === nothing || throw(ArgumentError("complete backward! before the next forward!"))
     check_parameter_bindings(state)
-    data = cpu_batch(input)
+    data = cpu_batch(float_input(model_precision(state.model), input))
     batch = batch_examples(data)
     batch > 0 || throw(ArgumentError("a batch must contain at least one example"))
     if state.batch != batch
@@ -194,7 +197,7 @@ end
 normalize_cotangent(x::LogitGradient) = x
 normalize_cotangent(::Nothing) = nothing
 normalize_cotangent(x::Tuple) = map(normalize_cotangent, x)
-normalize_cotangent(x::AbstractArray) = x isa Array{Float32} ? x : Float32.(Array(x))
+normalize_cotangent(x::AbstractArray) = cpu_batch(x)
 
 function check_parameter_bindings(state)
     occurrences = parameter_occurrences(state.model)
@@ -239,10 +242,10 @@ function backward!(state::TrainingState, upstream; loss_function=nothing)
     state.input = nothing
     delta === nothing && (delta = zero_cotangent(state.model.output))
 
-    input_gradient = backward!(state.model, input, delta)
+    input_gradient = propagate_layer!(state.model, input, delta)
     for (i, gradient) in state.sources
         slot = state.slots[i]
-        slot.trainable && (slot.gradient .+= Float32(state.batch) .* gradient)
+        slot.trainable && (slot.gradient .+= eltype(slot.gradient)(state.batch) .* gradient)
     end
     state.samples += state.batch
     state.microbatches += 1
@@ -251,13 +254,12 @@ end
 
 """Return mean accumulated gradients keyed by the first name of each parameter."""
 function gradients(state::TrainingState)
-    divisor = Float32(max(state.samples, 1))
-    return Dict(name => slot.gradient ./ divisor for (name, slot) in zip(state.names, state.slots))
+    return Dict(name => slot.gradient ./ eltype(slot.gradient)(max(state.samples, 1)) for (name, slot) in zip(state.names, state.slots))
 end
 
 function zero_grad!(state::TrainingState)
     for slot in state.slots
-        fill!(slot.gradient, 0f0)
+        fill!(slot.gradient, zero(eltype(slot.gradient)))
     end
     state.samples = 0
     state.microbatches = 0
@@ -269,22 +271,24 @@ function step!(state::TrainingState; clip_norm=nothing)
     state.input === nothing || throw(ArgumentError("complete backward! before step!"))
     state.samples == 0 && return state
     check_parameter_bindings(state)
-    scale = inv(Float64(state.samples))
+    scale = 1 // state.samples
     if clip_norm !== nothing
         0 < clip_norm < Inf || throw(ArgumentError("clip_norm must be positive and finite"))
-        norm2 = sum(slot -> slot.trainable ? sum(x -> abs2(Float64(x)), slot.gradient) : 0.0,
-                    state.slots; init=0.0)
+        # Compute the clipping norm in a type that can represent every group.
+        N = foldl((t, slot) -> promote_type(t, eltype(slot.gradient)), state.slots; init=Float64)
+        norm2 = sum(slot -> slot.trainable ? sum(x -> abs2(N(x)), slot.gradient) : zero(N),
+                    state.slots; init=zero(N))
         norm = sqrt(norm2) * scale
         norm > clip_norm && (scale *= clip_norm / norm)
     end
     optimizer = state.optimizer
     for slot in state.slots
         slot.trainable || continue
-        slot.gradient .*= Float32(scale)
+        slot.gradient .*= eltype(slot.gradient)(scale)
         slot.step += 1
         settings = (slot.step, optimizer.beta1, optimizer.beta2, optimizer.epsilon)
         update_parameters!(optimizer.kind, slot.value, slot.gradient, slot.first, slot.second,
-                           Float32(slot.α), settings)
+                           slot.α, settings)
     end
     return zero_grad!(state)
 end
@@ -309,7 +313,7 @@ function fit!(state::TrainingState, batches; loss_function, monitor=nothing, epo
             backward!(state, target; loss_function)
             examples += state.batch
             if monitor !== nothing
-                score += monitor isa Module ? monitor.func(prediction, normalize_cotangent(target)) : monitor(prediction, target)
+                score += monitor isa Module ? monitor.func(prediction, cotangent_as(prediction, normalize_cotangent(target))) : monitor(prediction, target)
             end
             if state.microbatches >= accumulate
                 step!(state; clip_norm)

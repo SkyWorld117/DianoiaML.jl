@@ -1,4 +1,8 @@
 module DianoiaML
+    using BFloat16s: BFloat16
+    export BFloat16
+    include("tools/precision.jl")
+    include("tools/precision_io.jl")
     include("tools/glorotuniform.jl")
     include("optimizer/parameter_update.jl")
     include("layer/operations.jl")
@@ -7,6 +11,8 @@ module DianoiaML
     struct LogitGradient{A}
         data::A
     end
+
+    cotangent_as(prediction, delta::LogitGradient) = LogitGradient(cotangent_as(prediction, delta.data))
 
     activation_gradient!(dest, activation, values, delta) =
         activation.get_∇biases!(dest, values, delta)
@@ -60,6 +66,8 @@ module DianoiaML
     include("./layer/residual.jl")
     using .ResidualM:Residual
     export Residual
+    accepts_precision(constructor::Type{<:Union{Dense,Conv2D,MaxPooling2D,UpSampling2D,Flatten,
+                                               Constructive,Dropout,TConv2D,Residual}}) = true
 
     include("./network/sequential.jl")
     using .sequential:Sequential

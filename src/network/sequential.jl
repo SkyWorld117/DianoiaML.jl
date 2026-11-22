@@ -1,17 +1,19 @@
 module sequential
     using ..DianoiaML: AbstractLayer, AbstractLayerStack, Hidden_Input_Layer, Hidden_Output_Layer,
-                       add_layer!, last_layer, activate!
+                       add_layer!, last_layer, activate!, output_buffer!
     import ..DianoiaML
-    import ..DianoiaML: update!
+    import ..DianoiaML: update!, precision_type
+    using ..DianoiaML: checked_precision, model_precision
 
-    mutable struct Sequential <: AbstractLayerStack
+    mutable struct Sequential{T<:AbstractFloat} <: AbstractLayerStack
         # The public layer list also accepts custom layers implementing the property protocol.
         layers::Vector{Any}
         num_layer::Int
-        loss::Float64
+        loss::AbstractFloat
         default_input_shape::Tuple
 
-        Sequential() = new(Any[Hidden_Input_Layer(Float32[])], 0, 0.0, ())
+        Sequential(; precision::Type{T}=Float32) where {T<:AbstractFloat} =
+            new{T}(Any[Hidden_Input_Layer(checked_precision(T)[])], 0, 0.0, ())
     end
 
     """
@@ -20,8 +22,8 @@ module sequential
     Build a model from configured layers and nonempty `Sequential` or `ResNet`
     blocks. Use a distinct instance at each position in the model.
     """
-    function Sequential(first::AbstractLayer, rest::AbstractLayer...)
-        model = Sequential()
+    function Sequential(first::AbstractLayer, rest::AbstractLayer...; precision=model_precision(first))
+        model = Sequential(; precision)
         add_layer!(model, first)
         for layer in rest
             add_layer!(model, layer)
@@ -29,14 +31,14 @@ module sequential
         return model
     end
 
-    function update!(model::Sequential, input::Array{Float32}, target::Array{Float32},
-                     loss_function, monitor, optimizer::String, α::Float64, parameters...)
+    precision_type(::Sequential{T}) where {T} = T
+
+    function update!(model::Sequential, input::Array{<:AbstractFloat}, target::Array{<:AbstractFloat},
+                     loss_function, monitor, optimizer::String, α::Real, parameters...)
         prediction = activate!(model, input; training=true)
-        if size(model.layers[end].δ) != size(prediction)
-            model.layers[end].δ = similar(prediction)
-        end
-        delta = DianoiaML.output_gradient!(model.layers[end].δ, last_layer(model), target, loss_function)
-        update!(model, optimizer, input, delta, α, parameters)
+        output_delta = output_buffer!(model.layers[end], prediction)
+        delta = DianoiaML.output_gradient!(output_delta, last_layer(model), target, loss_function)
+        update!(model, optimizer, model.layers[1].output, delta, α, parameters)
         model.loss += monitor.func(prediction, target)
     end
 end

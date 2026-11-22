@@ -1,5 +1,3 @@
-using HDF5: create_group
-
 function model_arrays(model)
     arrays = Dict{String,Array}()
     walk_layers(model) do layer, prefix
@@ -60,7 +58,7 @@ function save_checkpoint(path::AbstractString, state::TrainingState)
         h5open(temporary, "w") do file
             write(file, "version", 1)
             write(file, "optimizer", state.optimizer.kind)
-            write(file, "settings", [state.optimizer.α, state.optimizer.beta1, state.optimizer.beta2, state.optimizer.epsilon])
+            write_array(file, "settings", [state.optimizer.α, state.optimizer.beta1, state.optimizer.beta2, state.optimizer.epsilon])
             write(file, "progress", [state.samples, state.microbatches, state.epochs])
             write(file, "random", [state.seed, state.forwards])
             write(file, "array_count", length(arrays))
@@ -70,19 +68,19 @@ function save_checkpoint(path::AbstractString, state::TrainingState)
             model = create_group(file, "model")
             for (i, name) in enumerate(sort!(collect(keys(arrays))))
                 write(model, "name_$i", name)
-                write(model, "value_$i", arrays[name])
+                write_array(model, "value_$i", arrays[name])
             end
             optimizer = create_group(file, "parameters")
             for (i, slot) in enumerate(state.slots)
                 group = create_group(optimizer, string(i))
                 write(group, "name", state.names[i])
-                write(group, "rate", slot.α)
+                write_number(group, "rate", slot.α)
                 write(group, "trainable", slot.trainable)
                 write(group, "step", slot.step)
-                write(group, "gradient", slot.gradient)
+                write_array(group, "gradient", slot.gradient)
                 if slot.first !== nothing
-                    write(group, "first", slot.first)
-                    write(group, "second", slot.second)
+                    write_array(group, "first", slot.first)
+                    write_array(group, "second", slot.second)
                 end
             end
             links = create_group(file, "aliases")
@@ -97,7 +95,7 @@ function save_checkpoint(path::AbstractString, state::TrainingState)
 end
 
 function read_slot_array!(dest, group, key)
-    value = read(group, key)
+    value = read_array(group, key)
     size(dest) == size(value) && eltype(dest) == eltype(value) ||
         throw(DimensionMismatch("checkpoint optimizer array $key differs"))
     copyto!(dest, value)
@@ -108,8 +106,9 @@ function load_checkpoint!(state::TrainingState, path::AbstractString)
     state.input === nothing || throw(ArgumentError("complete backward! before loading a checkpoint"))
     saved, restored = h5open(path, "r") do file
         read(file, "version") == 1 || throw(ArgumentError("unsupported checkpoint version"))
-        α, beta1, beta2, epsilon = read(file, "settings")
-        optimizer = Optimizer(Symbol(read(file, "optimizer")); α, beta1, beta2, epsilon)
+        settings = read_array(file, "settings")
+        α, beta1, beta2, epsilon = settings
+        optimizer = Optimizer(Symbol(read(file, "optimizer")); α, beta1, beta2, epsilon, precision=eltype(settings))
         seed, forwards = read(file, "random")
         restored = TrainingState(state.model, optimizer; seed)
         restored.forwards = forwards
@@ -128,7 +127,7 @@ function load_checkpoint!(state::TrainingState, path::AbstractString)
         for (i, slot) in enumerate(restored.slots)
             group = file["parameters/$i"]
             read(group, "name") == restored.names[i] || throw(ArgumentError("checkpoint parameter order differs"))
-            slot.α = read(group, "rate")
+            slot.α = read_number(group, "rate")
             validate_rate(slot.α)
             slot.trainable = read(group, "trainable")
             slot.step = read(group, "step")
@@ -140,7 +139,7 @@ function load_checkpoint!(state::TrainingState, path::AbstractString)
             end
         end
         model = file["model"]
-        saved = Dict(read(model, "name_$i") => read(model, "value_$i") for i in 1:read(file, "array_count"))
+        saved = Dict(read(model, "name_$i") => read_array(model, "value_$i") for i in 1:read(file, "array_count"))
         return saved, restored
     end
 

@@ -1,13 +1,14 @@
 module Binary_Cross_Entropy_Loss
-    const EPSILON = 1f-8
-    binary_loss(p, y) = -y * log(max(p, EPSILON)) - (1f0 - y) * log(max(1f0 - p, EPSILON))
-    binary_gradient(p, y) = (1f0 - y) / max(1f0 - p, EPSILON) - y / max(p, EPSILON)
+    using ..DianoiaML: probability_floor
 
-    function func(output::Array{Float32}, target::Array{Float32})
-        return binary_loss.(output, target)
+    binary_loss(p, y, ε) = -y * log(max(p, ε)) - (one(ε) - y) * log(max(one(ε) - p, ε))
+    binary_gradient(p, y, ε) = (one(ε) - y) / max(one(ε) - p, ε) - y / max(p, ε)
+
+    function func(output::AbstractArray{<:AbstractFloat}, target::AbstractArray{<:AbstractFloat})
+        return binary_loss.(output, target, probability_floor(eltype(output)))
     end
 
-    function prop!(delta::Array{Float32}, output::Array{Float32}, target::Array{Float32})
-        delta .= binary_gradient.(output, target)
+    function prop!(delta::AbstractArray{<:AbstractFloat}, output::AbstractArray{<:AbstractFloat}, target::AbstractArray{<:AbstractFloat})
+        delta .= binary_gradient.(output, target, probability_floor(eltype(output)))
     end
 end

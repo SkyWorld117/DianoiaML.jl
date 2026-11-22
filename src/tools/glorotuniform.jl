@@ -1,11 +1,12 @@
 module GlorotUniform
-    function GUMatrix(input_size::Int, layer_size::Int, shape)
-        limit = sqrt(6f0 / (input_size + layer_size))
-        values = rand(Float32, shape)
-        values .= (2f0 * limit) .* values .- limit
-        return values
+    using ..DianoiaML: accumulation_type, random_precision
+
+    function GUMatrix(input_size::Int, layer_size::Int, shape, ::Type{T}=Float32) where {T<:AbstractFloat}
+        A = accumulation_type(T)
+        limit = sqrt(A(6) / A(input_size + layer_size))
+        values = rand(random_precision(A), shape)
+        return T.((A(2) * limit) .* values .- limit)
     end
+
     export GUMatrix
 end
-
-# Source: https://keras.io/api/layers/initializers/#glorotuniform-class

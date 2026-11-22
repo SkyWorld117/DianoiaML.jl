@@ -1,19 +1,21 @@
 module Sigmoid
     @inline function sigmoid(value)
         z = exp(-abs(value))
-        return ifelse(value >= 0f0, 1f0, z) / (1f0 + z)
+        unit = one(z)
+        return ifelse(value >= zero(value), unit, z) / (unit + z)
     end
 
     @inline function sigmoid_derivative(value)
         z = exp(-abs(value))
-        return z / (1f0 + z)^2
+        unit = one(z)
+        return z / (unit + z)^2
     end
 
-    function func!(output::Array{Float32}, values::Array{Float32})
+    function func!(output::Array{T}, values::Array{T}) where {T<:AbstractFloat}
         output .= sigmoid.(values)
     end
 
-    function get_∇biases!(gradient::Array{Float32}, values::Array{Float32}, delta::Array{Float32})
+    function get_∇biases!(gradient::Array{T}, values::Array{T}, delta::Array{T}) where {T<:AbstractFloat}
         gradient .= sigmoid_derivative.(values) .* delta
     end
 

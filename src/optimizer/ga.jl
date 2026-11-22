@@ -1,10 +1,11 @@
 module GA
     using Random: default_rng, shuffle!
     using ..DianoiaML: AbstractLayerStack, Residual, initialize!, activate!,
-                       batch_buffer, batch_size_for, copy_examples!, sample_count
+                       accumulation_type, random_precision, model_precision, batch_buffer, batch_size_for,
+                       copy_examples!, sample_count
 
-    function fit(;models::Array, input_data::Array{Float32}, output_data::Array{Float32}, monitor,
-                 α::Float64=0.01, num_copy::Int, epochs::Int=20, batch::Real=32, mini_batch::Union{Int,Nothing}=nothing,
+    function fit(;models::Array, input_data::AbstractArray{<:AbstractFloat}, output_data::AbstractArray{<:AbstractFloat}, monitor,
+                 α::Real=0.01, num_copy::Int, epochs::Int=20, batch::Real=32, mini_batch::Union{Int,Nothing}=nothing,
                  shuffle::Bool=true, rng=default_rng(), verbose::Bool=true)
         1 <= num_copy <= length(models) || throw(ArgumentError("num_copy must be between 1 and the population size"))
         length(unique(models)) == length(models) || throw(ArgumentError("each genetic candidate must be a distinct model"))
@@ -13,8 +14,9 @@ module GA
         examples = sample_count(input_data, output_data)
         batch_size = batch_size_for(something(mini_batch, batch), examples)
         steps = cld(examples, batch_size)
-        losses = zeros(Float64, length(models))
-        fitness = zeros(Float64, num_copy)
+        A = foldl((t, model) -> promote_type(t, model_precision(model)), models; init=Float64)
+        losses = zeros(A, length(models))
+        fitness = zeros(A, num_copy)
         order = collect(1:examples)
         x, y = batch_buffer(input_data, batch_size), batch_buffer(output_data, batch_size)
         tail = rem(examples, batch_size)
@@ -25,7 +27,7 @@ module GA
 
         active_size = batch_size
         for epoch in 1:epochs
-            loss = 0.0
+            loss = zero(A)
             shuffle && shuffle!(rng, order)
             for (step, first) in enumerate(1:batch_size:examples)
                 count = min(batch_size, examples - first + 1)
@@ -50,7 +52,7 @@ module GA
                     fitness[i] = inv(1 + (losses[rank[i]] - best))
                 end
                 total = sum(fitness)
-                strength = Float32((1 - step / (steps + 1))^5)
+                strength = (1 - A(step) / (steps + 1))^5
                 for i in num_copy+1:length(rank)
                     first_parent = models[rank[sample(fitness, total, rng)]]
                     second_parent = models[rank[sample(fitness, total, rng)]]
@@ -88,11 +90,14 @@ module GA
     end
 
     function recombine_array!(dest, a, b, probability, strength, rng)
+        T = eltype(dest)
+        A = accumulation_type(T)
+        R = random_precision(A)
         for i in eachindex(dest, a, b)
-            value = a[i] + rand(rng, Float32) * (b[i] - a[i])
+            value = A(a[i]) + A(rand(rng, R)) * (A(b[i]) - A(a[i]))
             if rand(rng) < probability
-                limit = rand(rng, Bool) ? 1f0 : -1f0
-                value += (limit - value) * (1f0 - rand(rng, Float32)^strength)
+                limit = rand(rng, Bool) ? one(A) : -one(A)
+                value += (limit - value) * (one(A) - A(rand(rng, R))^A(strength))
             end
             dest[i] = value
         end
