@@ -1,6 +1,6 @@
 # Update Log
 
-### Update 5.0.0 - 11.22.2026
+### Update 0.5.0 - 11.22.2026
 - Raised the minimum Julia version to 1.13 and updated the dependencies. Run `scripts/init_env.sh` to set up the local development environment.
 - Added composable nested networks and the `Graph` API for branching, shared parameters, and multiple inputs and outputs.
 - Added multi-head self-attention and cross-attention, pre-norm Transformer blocks, LayerNorm, and GELU. Attention supports causal self-attention, Boolean key padding masks, and variable token lengths.
@@ -99,4 +99,4 @@
 - Added **Adam** and **AdaBelief** as optimizers.
 - Added **One Hot** and **Flatten** as tools.
 - Improved the structures.
-- Known issues: Convolutional2D requires a lot of RAM and is relatively slow. 
+- Known issues: Convolutional2D requires a lot of RAM and is relatively slow.
