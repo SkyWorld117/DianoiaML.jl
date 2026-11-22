@@ -1,4 +1,5 @@
 module UpSampling2DM
+    import ..DianoiaML: backward!, supports_backward
     import ..DianoiaML: AbstractLayer, initialize!, activate!, update!, save_layer
     using ..DianoiaML: activation_gradient!
 
@@ -40,7 +41,9 @@ module UpSampling2DM
         layer.activation_function.func!(layer.output, layer.value)
     end
 
-    function update!(layer::UpSampling2D, optimizer::String, input::Array{Float32,4}, δₗ₊₁, α::Float64, parameters::Tuple, direction::Int=1)
+    supports_backward(::UpSampling2D) = true
+
+    function backward!(layer::UpSampling2D, input, δₗ₊₁)
         activation_gradient!(layer.∇biases, layer.activation_function, layer.value, δₗ₊₁)
         x, y = layer.size
         @inbounds for b in axes(layer.δ, 4), c in axes(layer.δ, 3), j in axes(layer.δ, 2), i in axes(layer.δ, 1)
@@ -52,6 +55,11 @@ module UpSampling2DM
             end
             layer.δ[i, j, c, b] = total
         end
+        return layer.δ
+    end
+
+    function update!(layer::UpSampling2D, optimizer::String, input, delta, α::Float64, parameters::Tuple, direction::Int=1)
+        backward!(layer, input, delta)
     end
 
     function save_layer(layer::UpSampling2D, file, id::String)

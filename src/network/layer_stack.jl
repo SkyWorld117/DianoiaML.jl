@@ -119,12 +119,27 @@ function forward_layers!(layers, indices, input, training)
     return input
 end
 
-function activate!(model::AbstractLayerStack, data::Array{Float32}; training::Bool=false)
+function activate_layer(model::AbstractLayerStack, data, training)
     model.layers[1].output = data
     return forward_layers!(model.layers, 2:model.num_layer+1, data, training)
 end
 
-activate_layer(model::AbstractLayerStack, input, training) = activate!(model, input; training)
+activate!(model::AbstractLayerStack, data::Array{Float32}; training::Bool=false) =
+    activate_layer(model, data, training)
+
+supports_backward(model::AbstractLayerStack) = all(supports_backward, layer_children(model))
+
+function backward!(model::AbstractLayerStack, input, delta)
+    return propagate_layers!(model.layers, 2:model.num_layer+1, input, delta)
+end
+
+function propagate_layers!(layers, indices, input, delta)
+    for i in Iterators.reverse(indices)
+        previous = i == first(indices) ? input : layers[i-1].output
+        delta = backward!(layers[i], previous, delta)
+    end
+    return delta
+end
 
 function update!(model::AbstractLayerStack, optimizer::String, input::Array{Float32}, delta,
                  α::Float64, parameters::Tuple, direction::Int=1)
@@ -132,6 +147,11 @@ function update!(model::AbstractLayerStack, optimizer::String, input::Array{Floa
 end
 
 function backward_layers!(layers, indices, first_input, delta, optimizer, α, parameters, direction)
+    if all(i -> supports_backward(layers[i]), indices)
+        result = propagate_layers!(layers, indices, first_input, delta)
+        direction == 0 || legacy_step!(layers, indices, optimizer, α, parameters, direction)
+        return result
+    end
     for i in Iterators.reverse(indices)
         input = i == first(indices) ? first_input : layers[i-1].output
         delta = update_layer!(layers[i], optimizer, input, delta, α, parameters, direction)

@@ -2,7 +2,6 @@ module SpatialConvolution
 using NNlib: DenseConvDims, conv_im2col!, ∇conv_data_im2col!, ∇conv_filter_im2col!,
              conv_im2col_dims, ∇conv_data_im2col_dims, ∇conv_filter_im2col_dims,
              insert_singleton_spatial_dimension
-using ..DianoiaML: update_parameters!
 
 struct Workspace{D}
     dims::D
@@ -32,9 +31,9 @@ function forward!(layer, input, work::Workspace=layer.workspace)
     layer.activation_function.func!(layer.output, layer.value)
 end
 
-function backward!(layer, input, input_gradient, optimizer, α, parameters, direction, work::Workspace=layer.workspace)
+function backward!(layer, input, input_gradient; compute_parameters=true, work::Workspace=layer.workspace)
     ∇conv_data_im2col!(input_gradient, layer.∇biases, work.kernel, work.dims; col=work.columns)
-    direction == 0 && return
+    compute_parameters || return input_gradient
 
     delta = layer.∇biases
     batch = size(delta, 4)
@@ -51,8 +50,6 @@ function backward!(layer, input, input_gradient, optimizer, α, parameters, dire
         layer.∇biases_c[f] = total / batch
     end
 
-    rate = Float32(α * direction)
-    update_parameters!(optimizer, layer.filters, layer.∇weights, layer.Vdw, layer.Sdw, rate, parameters)
-    update_parameters!(optimizer, layer.biases, layer.∇biases_c, layer.Vdb, layer.Sdb, rate, parameters)
+    return input_gradient
 end
 end

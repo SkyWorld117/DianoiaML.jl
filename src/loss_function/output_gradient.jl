@@ -1,6 +1,11 @@
 output_activation(layer) = nothing
 output_activation(layer::Union{Dense,Conv2D,TConv2D,UpSampling2D}) = layer.activation_function
 output_activation(model::AbstractLayerStack) = output_activation(last_layer(model))
+function output_activation(graph::Graph)
+    length(graph.outputs) == 1 || return nothing
+    index = only(graph.outputs) - length(graph.input_shapes)
+    return index >= 1 ? output_activation(graph.nodes[index].layer) : nothing
+end
 
 function output_gradient!(delta, layer, target, loss)
     output = layer.output

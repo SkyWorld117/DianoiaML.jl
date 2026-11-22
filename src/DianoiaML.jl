@@ -69,6 +69,9 @@ module DianoiaML
     include("./network/gan.jl")
     using .gan:GAN
     export GAN
+    include("network/graph.jl")
+    export Graph, Node, Add, Select, share_parameters
+    export AbstractLayer, initialize!, activate!, backward!, supports_backward, parameter_gradients, persistent_buffers
 
     include("./loss_function/categorical_cross_entropy_loss.jl")
     using .Categorical_Cross_Entropy_Loss
@@ -95,6 +98,8 @@ module DianoiaML
     export Classification
 
     include("optimizer/training.jl")
+    include("optimizer/training_state.jl")
+    export Optimizer, TrainingState, forward!, step!, fit!, parameters, gradients, set_group!, zero_grad!
     include("./optimizer/sgd.jl")
     using .SGD
     export SGD
@@ -112,6 +117,8 @@ module DianoiaML
     export GA
 
     include("./tools/model_management.jl")
+    include("tools/checkpoint.jl")
+    export state_dict, load_state!, save_checkpoint, load_checkpoint!
     export save_Sequential, load_Sequential
     export save_GAN, load_GAN
     include("./tools/oneHot.jl")

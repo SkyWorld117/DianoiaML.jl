@@ -44,7 +44,7 @@ end
              batch=2, epochs=1, α=0.1, verbose=false)
     @test only(dense.weights) ≈ 0.2f0
     @test only(dense.biases) ≈ -0.8f0
-    @test_throws MethodError dense.activate(dense, ones(Float32, 1))
+    @test_throws DimensionMismatch dense.activate(dense, ones(Float32, 1))
 end
 
 @testset "Dropout and reinitialization" begin

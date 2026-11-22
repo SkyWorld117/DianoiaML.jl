@@ -62,6 +62,72 @@ Training the outer model updates the layers inside its blocks. `Residual(block)`
 requires matching input and output shapes. Call the block factory for each
 position because layers keep their own forward state for backpropagation.
 
+## Manual training and checkpoints
+
+`TrainingState` keeps optimizer moments, step counts, and accumulated
+gradients. The layer derivatives remain handwritten. Use `forward!` and
+`backward!` for a training batch, then `step!` to apply the gradients.
+Repeated forward/backward pairs accumulate a mean weighted by the number
+of examples in each batch. `step!(state; clip_norm=1.0)` clips the global
+gradient norm. `set_group!` accepts a parameter array or a network block
+and can change its learning rate or freeze its parameters.
+
+```julia
+using DianoiaML
+
+projection = Dense(input_shape=(2, 1), layer_size=2, activation_function=None)
+model = Graph(((2, 1), (2, 1)),
+    Node(projection, 1),
+    Node(share_parameters(projection), 2),
+    Node(Add((2, 1)), 3, 4),
+)
+state = TrainingState(model, Optimizer(:Adam; α=0.001); seed=42)
+
+function batches()
+    return (((ones(Float32, 2, tokens, 4), ones(Float32, 2, tokens, 4)),
+             zeros(Float32, 2, tokens, 4)) for tokens in (3, 5))
+end
+
+fit!(state, batches; loss_function=Mean_Squared_Error, epochs=2, accumulate=2)
+
+mktempdir() do dir
+    path = save_checkpoint(joinpath(dir, "training.h5"), state)
+    load_checkpoint!(state, path)
+end
+```
+
+Graph indices refer to inputs first and previous nodes second. A node with
+several parents receives a tuple. Set `outputs=(...)` to return several
+tensors, and use `Select` to route one element of a nested graph's output.
+`share_parameters` shares the parameter arrays of a Dense or convolution
+layer while keeping the invocations' forward buffers separate. Build a new
+training state when changing architecture or replacing parameter arrays.
+
+`fit!` accepts any iterable of `(inputs, targets)` or a zero-argument factory
+that creates one for each epoch. Float inputs can be CPU array views and are
+converted to Float32 as needed. Tuple inputs can also contain integer or
+Boolean tensors, such as masks. All inputs use the last axis for examples.
+Dense applies its projection along the first axis and accepts changing token
+lengths between those axes.
+
+For a custom layer, implement `initialize!(layer, batch_size)`,
+`activate!(layer, input)`, `backward!(layer, input, upstream)`, and
+`supports_backward(::YourLayer) = true`. The backward method returns the
+input cotangent, or a tuple of cotangents for several inputs. Return
+`nothing` for an input such as a mask. Trainable layers expose a named tuple
+from `parameter_gradients(layer)`, with each value a pair of the parameter
+array and a fixed gradient buffer. The backward method writes that buffer
+as a mean over the examples in the batch. A custom objective can also
+return explicit output cotangents from a callable passed as `loss_function`.
+
+`state_dict(model)` snapshots named parameters and any custom
+`persistent_buffers(layer)`. `save_checkpoint` also saves optimizer groups,
+pending accumulated gradients, epoch progress, and the built-in dropout
+stream. Rebuild the architecture and its parameter ties before loading.
+The batch iterator's position and any randomness it uses belong to the
+caller. Checkpoint files are separate from the legacy architecture files
+written by `save_Sequential` and `save_GAN`.
+
 ## Features
 <details>
  <summaryClick me! ></summary>

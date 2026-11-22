@@ -32,6 +32,9 @@ module sequential
     function update!(model::Sequential, input::Array{Float32}, target::Array{Float32},
                      loss_function, monitor, optimizer::String, α::Float64, parameters...)
         prediction = activate!(model, input; training=true)
+        if size(model.layers[end].δ) != size(prediction)
+            model.layers[end].δ = similar(prediction)
+        end
         delta = DianoiaML.output_gradient!(model.layers[end].δ, last_layer(model), target, loss_function)
         update!(model, optimizer, input, delta, α, parameters)
         model.loss += monitor.func(prediction, target)

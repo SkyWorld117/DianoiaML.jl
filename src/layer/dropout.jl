@@ -1,5 +1,7 @@
 module DropoutM
-    using Random: rand!
+    import ..DianoiaML: backward!, supports_backward
+    using Random: rand!, default_rng
+    using ..DianoiaML: TrainingMode
     import ..DianoiaML: AbstractLayer, initialize!, activate!, update!, save_layer, activate_layer
 
     mutable struct Dropout{N} <: AbstractLayer
@@ -29,11 +31,20 @@ module DropoutM
 
     activate_layer(layer::Dropout, input, training) = activate!(layer, input; training)
 
-    function activate!(layer::Dropout, input::Array{Float32}; training::Bool=true)
-        size(input) == size(layer.output) || throw(DimensionMismatch("unexpected dropout input size"))
+    activate_layer(layer::Dropout, input, mode::TrainingMode) =
+        activate!(layer, input; training=true, rng=mode.rng)
+
+    function activate!(layer::Dropout, input::Array{Float32}; training::Bool=true, rng=default_rng())
+        ndims(input) == length(layer.input_shape) + 1 ||
+            throw(DimensionMismatch("unexpected dropout input rank"))
+        if !isdefined(layer, :output) || size(input) != size(layer.output)
+            layer.table = similar(input)
+            layer.output = similar(input)
+            layer.δ = similar(input)
+        end
         layer.training = training
         if training
-            rand!(layer.table)
+            rand!(rng, layer.table)
             scale = Float32(inv(1 - layer.rate))
             layer.output .= ifelse.(layer.table .< Float32(layer.rate), 0f0, input .* scale)
         else
@@ -41,13 +52,20 @@ module DropoutM
         end
     end
 
-    function update!(layer::Dropout, optimizer::String, input::Array{Float32}, δₗ₊₁::Array{Float32}, α::Float64, parameters::Tuple, direction::Int=1)
+    supports_backward(::Dropout) = true
+
+    function backward!(layer::Dropout, input, δₗ₊₁)
         if layer.training
             scale = Float32(inv(1 - layer.rate))
             layer.δ .= ifelse.(layer.table .< Float32(layer.rate), 0f0, δₗ₊₁ .* scale)
         else
             copyto!(layer.δ, δₗ₊₁)
         end
+        return layer.δ
+    end
+
+    function update!(layer::Dropout, optimizer::String, input, delta, α::Float64, parameters::Tuple, direction::Int=1)
+        backward!(layer, input, delta)
     end
 
     function save_layer(layer::Dropout, file, id::String)

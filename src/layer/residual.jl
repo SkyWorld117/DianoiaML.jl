@@ -1,4 +1,5 @@
 module ResidualM
+    import ..DianoiaML: backward!, supports_backward
     using ..resnet: ResNet
     using ..DianoiaML: AbstractLayer, AbstractLayerStack
     import ..DianoiaML
@@ -48,12 +49,23 @@ module ResidualM
         layer.δ = zeros(Float32, layer.input_shape..., mini_batch)
     end
 
-    activate_layer(layer::Residual, input, training) = activate!(layer, input; training)
+    activate!(layer::Residual, input::Array{Float32}; training::Bool=false) =
+        activate_layer(layer, input, training)
 
-    function activate!(layer::Residual, input::Array{Float32}; training::Bool=false)
-        branch = activate!(layer.resnet, input; training)
+    function activate_layer(layer::Residual, input, training)
+        branch = activate_layer(layer.resnet, input, training)
         size(branch) == size(input) || throw(DimensionMismatch("the residual branch must preserve the input shape"))
+        if !isdefined(layer, :output) || size(layer.output) != size(input)
+            layer.output = similar(input)
+            layer.δ = similar(input)
+        end
         layer.output .= branch .+ input
+    end
+
+    supports_backward(layer::Residual) = supports_backward(layer.resnet)
+
+    function backward!(layer::Residual, input, delta::Array{Float32})
+        layer.δ .= delta .+ backward!(layer.resnet, input, delta)
     end
 
     function update!(layer::Residual, optimizer::String, input::Array{Float32}, δₗ₊₁::Array{Float32}, α::Float64, parameters::Tuple, direction::Int=1)

@@ -2,7 +2,10 @@ module TConv2DM
     import ..DianoiaML: AbstractLayer, initialize!, activate!, update!, save_layer, load_layer!
     using ..GlorotUniform: GUMatrix
     using ..DianoiaML: activation_gradient!
-    using ..SpatialConvolution: Workspace, forward!, backward!
+    using ..SpatialConvolution: Workspace, forward!
+    import ..SpatialConvolution
+    import ..DianoiaML: backward!, supports_backward, parameter_gradients
+    using ..DianoiaML: update_parameters!
 
     mutable struct TConv2D <: AbstractLayer
         input_shape::NTuple{3,Int}
@@ -74,14 +77,27 @@ module TConv2DM
         forward!(layer, layer.padding_input)
     end
 
-    function update!(layer::TConv2D, optimizer::String, input::Array{Float32,4}, δₗ₊₁,
-                              α::Float64, parameters::Tuple, direction::Int=1)
+    supports_backward(::TConv2D) = true
+    parameter_gradients(layer::TConv2D) =
+        (; filters=(layer.filters, layer.∇weights), biases=(layer.biases, layer.∇biases_c))
+
+    function backward!(layer::TConv2D, input::Array{Float32,4}, δₗ₊₁; compute_parameters=true)
         activation_gradient!(layer.∇biases, layer.activation_function, layer.value, δₗ₊₁)
-        backward!(layer, layer.padding_input, layer.padded_gradient, optimizer, α, parameters, direction)
+        SpatialConvolution.backward!(layer, layer.padding_input, layer.padded_gradient; compute_parameters)
         x, y = layer.strides
         p = layer.padding
         @views layer.δ .= layer.padded_gradient[p + 1:x:p + 1 + (size(input, 1) - 1) * x,
                                                p + 1:y:p + 1 + (size(input, 2) - 1) * y, :, :]
+        return layer.δ
+    end
+
+    function update!(layer::TConv2D, optimizer::String, input::Array{Float32,4}, delta,
+                     α::Float64, parameters::Tuple, direction::Int=1)
+        backward!(layer, input, delta; compute_parameters=direction != 0)
+        direction == 0 && return
+        rate = Float32(α * direction)
+        update_parameters!(optimizer, layer.filters, layer.∇weights, layer.Vdw, layer.Sdw, rate, parameters)
+        update_parameters!(optimizer, layer.biases, layer.∇biases_c, layer.Vdb, layer.Sdb, rate, parameters)
     end
 
     function save_layer(layer::TConv2D, file, id::String)

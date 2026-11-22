@@ -1,4 +1,5 @@
 module MaxPooling2DM
+    import ..DianoiaML: backward!, supports_backward
     import ..DianoiaML: AbstractLayer, initialize!, activate!, update!, save_layer
     mutable struct MaxPooling2D <: AbstractLayer
         input_shape::NTuple{3,Int}
@@ -43,12 +44,19 @@ module MaxPooling2DM
         end
     end
 
-    function update!(layer::MaxPooling2D, optimizer::String, input::Array{Float32,4}, δₗ₊₁::Array{Float32,4}, α::Float64, parameters::Tuple, direction::Int=1)
+    supports_backward(::MaxPooling2D) = true
+
+    function backward!(layer::MaxPooling2D, input, δₗ₊₁)
         fill!(layer.δ, 0f0)
         # Overlapping windows can select the same input element.
         for i in eachindex(δₗ₊₁, layer.index)
             layer.δ[layer.index[i]] += δₗ₊₁[i]
         end
+        return layer.δ
+    end
+
+    function update!(layer::MaxPooling2D, optimizer::String, input, delta, α::Float64, parameters::Tuple, direction::Int=1)
+        backward!(layer, input, delta)
     end
 
     function save_layer(layer::MaxPooling2D, file, id::String)

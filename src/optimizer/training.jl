@@ -49,7 +49,16 @@ function fit_gradient!(model, input_data, output_data, loss, monitor, optimizer,
 
     initialize!(model, batch_size)
     reset_optimizer!(model)
-    model.loss = 0.0
+    hasproperty(model, :loss) && (model.loss = 0.0)
+    state = if supports_backward(model)
+        settings = isempty(adaptive_parameters) ? (; α) :
+            (; α, beta1=adaptive_parameters[1], beta2=adaptive_parameters[2], epsilon=adaptive_parameters[3])
+        state = TrainingState(model, Optimizer(Symbol(optimizer); settings...))
+        state.batch = batch_size
+        state
+    else
+        nothing
+    end
     order = collect(1:examples)
     x, y = batch_buffer(input_data, batch_size), batch_buffer(output_data, batch_size)
     tail = rem(examples, batch_size)
@@ -57,22 +66,33 @@ function fit_gradient!(model, input_data, output_data, loss, monitor, optimizer,
     active_size = batch_size
     step = 0
     for epoch in 1:epochs
+        score = 0.0
         shuffle && shuffle!(rng, order)
         for first in 1:batch_size:examples
             count = min(batch_size, examples - first + 1)
-            if active_size != count
+            if state === nothing && active_size != count
                 initialize!(model, count)
                 active_size = count
             end
             current_x, current_y = count == batch_size ? (x, y) : (tail_x, tail_y)
             copy_examples!(current_x, input_data, order, first)
             copy_examples!(current_y, output_data, order, first)
-            step += 1
-            parameters = isempty(adaptive_parameters) ? () : (step, adaptive_parameters...)
-            update!(model, current_x, current_y, loss, monitor, optimizer, α, parameters...)
+            if state === nothing
+                step += 1
+                parameters = isempty(adaptive_parameters) ? () : (step, adaptive_parameters...)
+                update!(model, current_x, current_y, loss, monitor, optimizer, α, parameters...)
+            else
+                prediction = forward!(state, current_x)
+                backward!(state, current_y; loss_function=loss)
+                step!(state)
+                score += monitor.func(prediction, current_y)
+            end
         end
-        verbose && println("Epoch ", epoch, " mean monitor ", model.loss / examples)
-        model.loss = 0.0
+        if state === nothing
+            score = model.loss
+            model.loss = 0.0
+        end
+        verbose && println("Epoch ", epoch, " mean monitor ", score / examples)
     end
     return nothing
 end

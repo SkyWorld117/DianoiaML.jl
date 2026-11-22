@@ -1,5 +1,14 @@
 abstract type AbstractLayer end
 
+function backward! end
+parameter_gradients(layer) = (;)
+persistent_buffers(layer) = (;)
+supports_backward(layer) = false
+
+struct TrainingMode{R}
+    rng::R
+end
+
 # Retain the property-based protocol for custom layers and models.
 function call_operation(method, object, property, args...; kwargs...)
     operation = getproperty(object, property)

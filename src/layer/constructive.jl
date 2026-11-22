@@ -1,4 +1,5 @@
 module ConstructiveM
+    import ..DianoiaML: backward!, supports_backward
     import ..DianoiaML: AbstractLayer, initialize!, activate!, update!, save_layer
     mutable struct Constructive{N,M} <: AbstractLayer
         input_shape::Tuple
@@ -24,9 +25,16 @@ module ConstructiveM
         copyto!(layer.output, input)
     end
 
-    function update!(layer::Constructive, optimizer::String, input::Array{Float32}, δₗ₊₁::Array{Float32}, α::Float64, parameters::Tuple, direction::Int=1)
+    supports_backward(::Constructive) = true
+
+    function backward!(layer::Constructive, input, δₗ₊₁)
         length(layer.δ) == length(δₗ₊₁) || throw(DimensionMismatch("unexpected reshape gradient size"))
         copyto!(layer.δ, δₗ₊₁)
+        return layer.δ
+    end
+
+    function update!(layer::Constructive, optimizer::String, input, delta, α::Float64, parameters::Tuple, direction::Int=1)
+        backward!(layer, input, delta)
     end
 
     function save_layer(layer::Constructive, file, id::String)
