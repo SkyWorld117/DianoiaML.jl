@@ -18,6 +18,11 @@ JULIA_DEPOT_PATH="$PWD/.julia-env/depot:" OPENBLAS_NUM_THREADS=1 \
 The setup script develops the local checkout and installs its dependencies in the ignored
 `.julia-env/` directory. Open Julia with the same depot and project to use the package.
 
+When Julia builds the package cache, DianoiaML runs one synthetic CPU training
+batch per supported floating-point type. This reduces first-use latency for
+the convolutional training path used by the MNIST example. Julia may still
+compile new model and optimizer combinations on first use.
+
 ## Training
 
 Supply floating-point arrays with examples in the last dimension. Each epoch visits every

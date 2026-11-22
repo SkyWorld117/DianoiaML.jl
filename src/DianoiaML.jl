@@ -129,4 +129,6 @@ module DianoiaML
     export save_GAN, load_GAN
     include("./tools/oneHot.jl")
     export oneHot
+
+    include("precompile_workload.jl")
 end
