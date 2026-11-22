@@ -81,7 +81,7 @@ end
 activate!(graph::Graph, input; training::Bool=false) = activate_layer(graph, input, training)
 
 function activate_layer(graph::Graph, input, training)
-    input = layer_input(graph, input)
+    input = cpu_batch(layer_input(graph, input))
     ninputs = length(graph.input_shapes)
     inputs = ninputs == 1 ? (input,) : input
     inputs isa Tuple && length(inputs) == ninputs || throw(DimensionMismatch("graph input count differs"))

@@ -34,6 +34,9 @@ module DianoiaML
     include("./activation_function/none.jl")
     using .None
     export None
+    include("activation_function/gelu.jl")
+    using .GELU
+    export GELU
 
     include("./layer/dense.jl")
     using .DenseM:Dense
@@ -60,6 +63,11 @@ module DianoiaML
     using .TConv2DM:TConv2D
     export TConv2D
     include("network/layer_stack.jl")
+    include("layer/layer_norm.jl")
+    using .LayerNormM: LayerNorm
+    include("layer/attention.jl")
+    using .AttentionM: Attention
+    export LayerNorm, Attention
     include("./network/resnet.jl")
     using .resnet:ResNet
     export ResNet
@@ -67,7 +75,8 @@ module DianoiaML
     using .ResidualM:Residual
     export Residual
     accepts_precision(constructor::Type{<:Union{Dense,Conv2D,MaxPooling2D,UpSampling2D,Flatten,
-                                               Constructive,Dropout,TConv2D,Residual}}) = true
+                                               Constructive,Dropout,TConv2D,Residual,
+                                               LayerNorm,Attention}}) = true
 
     include("./network/sequential.jl")
     using .sequential:Sequential
@@ -77,6 +86,8 @@ module DianoiaML
     export GAN
     include("network/graph.jl")
     export Graph, Node, Add, Select, share_parameters
+    include("network/transformer.jl")
+    export TransformerBlock
     export AbstractLayer, initialize!, activate!, backward!, supports_backward, parameter_gradients, persistent_buffers
 
     include("./loss_function/categorical_cross_entropy_loss.jl")

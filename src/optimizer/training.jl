@@ -8,7 +8,13 @@ function reset_optimizer!(layer::Union{Dense,Conv2D,TConv2D})
     end
 end
 
-reset_optimizer!(model::Union{AbstractLayerStack,GAN,Residual}) =
+function reset_optimizer!(layer::LayerNorm)
+    for state in (layer.scale_moments..., layer.bias_moments...)
+        fill!(state, zero(eltype(state)))
+    end
+end
+
+reset_optimizer!(model::Union{AbstractLayerStack,GAN,Residual,Attention}) =
     foreach(reset_optimizer!, layer_children(model))
 
 function sample_count(input, target)

@@ -51,6 +51,7 @@ legacy_moments(layer) = (;)
 legacy_moments(layer::Dense) = (; weights=(layer.Vdw, layer.Sdw), biases=(layer.Vdb, layer.Sdb))
 legacy_moments(layer::Union{Conv2D,TConv2D}) =
     (; filters=(layer.Vdw, layer.Sdw), biases=(layer.Vdb, layer.Sdb))
+legacy_moments(layer::LayerNorm) = (; scale=layer.scale_moments, bias=layer.bias_moments)
 
 # Preserve the direct update! interface and the built-in GAN schedule.
 function legacy_step!(layers, indices, optimizer, α, settings, direction)

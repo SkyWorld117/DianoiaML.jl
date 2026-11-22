@@ -27,4 +27,5 @@ end
     include("composition.jl")
     include("training_state.jl")
     include("precision.jl")
+    include("transformer.jl")
 end

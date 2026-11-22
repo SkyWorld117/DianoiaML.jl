@@ -94,6 +94,40 @@ Training the outer model updates the layers inside its blocks. `Residual(block)`
 requires matching input and output shapes. Call the block factory for each
 position because layers keep their own forward state for backpropagation.
 
+## Attention and Transformer blocks
+
+`Attention` implements multi-head scaled dot-product attention on
+`features × tokens × examples` tensors. `LayerNorm` normalizes over the
+feature axis, and `GELU` uses the tanh approximation. `TransformerBlock`
+combines pre-normalized attention and feed-forward residual branches.
+`causal=true` lets each query see only its own token and earlier tokens.
+
+```julia
+using DianoiaML
+
+model = Sequential(; precision=Float32)
+add_layer!(model, TransformerBlock; input_shape=(32, 16), heads=4, causal=true, dropout=0.1)
+add_layer!(model, TransformerBlock; heads=4, causal=true, dropout=0.1)
+add_layer!(model, Dense; layer_size=8, activation_function=None)
+
+state = TrainingState(model, Optimizer(:Adam); seed=42)
+inputs = rand(Float32, 32, 16, 4)
+targets = rand(Float32, 8, 16, 4)
+fit!(state, [(inputs, targets)]; loss_function=Mean_Squared_Error)
+```
+
+Supply embedded features with any positional information your task needs.
+Attention and the blocks accept variable token lengths between batches.
+With `padding_mask=true`, a block accepts `(features, key_mask)`. The Boolean
+mask has shape `(tokens, examples)` and `true` marks a visible key. To pass the
+same mask to several blocks, wire it to each block through `Graph`. Use a
+masked objective to exclude padded query positions from the loss.
+
+For cross-attention, construct `Attention(; input_shape=(32, 16),
+context_shape=(64, 24), heads=4)` and supply `(query, context)`. With
+`padding_mask=true`, append a Boolean mask for the context keys. Cross-attention
+and padded blocks work with `TrainingState` and `save_checkpoint`.
+
 ## Manual training and checkpoints
 
 `TrainingState` keeps optimizer moments, step counts, and accumulated
@@ -169,7 +203,10 @@ written by `save_Sequential` and `save_GAN`.
   - Sequential
   - GAN
   - ResNet
+  - TransformerBlock
 - Layer
+  - Attention
+  - LayerNorm
   - Flatten
   - Constructive
   - Dense
@@ -180,6 +217,7 @@ written by `save_Sequential` and `save_GAN`.
   - Dropout
   - Residual
 - Activation Function
+  - GELU
   - ReLU
   - Sigmoid
   - Softmax

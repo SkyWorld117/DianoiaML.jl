@@ -1,7 +1,7 @@
 abstract type AbstractLayerStack <: AbstractLayer end
 
 mutable struct Hidden_Input_Layer
-    output::Array{<:AbstractFloat}
+    output::Union{Array{<:AbstractFloat},Tuple}
 end
 
 mutable struct Hidden_Output_Layer
@@ -139,7 +139,7 @@ function activate_layer(model::AbstractLayerStack, data, training)
     return forward_layers!(model.layers, 2:model.num_layer+1, data, training)
 end
 
-activate!(model::AbstractLayerStack, data::AbstractArray{<:AbstractFloat}; training::Bool=false) =
+activate!(model::AbstractLayerStack, data::Union{AbstractArray{<:AbstractFloat},Tuple}; training::Bool=false) =
     activate_layer(model, data, training)
 
 supports_backward(model::AbstractLayerStack) = all(supports_backward, layer_children(model))
