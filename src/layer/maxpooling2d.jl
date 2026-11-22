@@ -36,15 +36,43 @@ module MaxPooling2DM
 
     function activate!(layer::MaxPooling2D{T}, input::Array{T,4}) where {T}
         size(input) == size(layer.δ) || throw(DimensionMismatch("unexpected pooling input size"))
+        examples = axes(input, 4)
+        # Each example writes to disjoint slices. Small batches avoid task overhead.
+        if Threads.nthreads() > 1 && length(examples) > 1 && length(layer.output) >= 32_768
+            Threads.@threads for example in examples
+                pool_example!(layer, input, example)
+            end
+        else
+            for example in examples
+                pool_example!(layer, input, example)
+            end
+        end
+        return nothing
+    end
+
+    function pool_example!(layer, input, example)
         sx, sy = layer.strides
         px, py = layer.pool_size
         linear = LinearIndices(input)
-        @inbounds for b in axes(layer.output, 4), c in axes(layer.output, 3)
+        width = size(input, 1)
+        @inbounds for c in axes(layer.output, 3)
             for j in axes(layer.output, 2), i in axes(layer.output, 1)
-                x, y = (i - 1) * sx, (j - 1) * sy
-                value, index = findmax(view(input, x + 1:x + px, y + 1:y + py, c, b))
-                layer.output[i, j, c, b] = value
-                layer.index[i, j, c, b] = linear[x + index[1], y + index[2], c, b]
+                x, y = (i - 1) * sx + 1, (j - 1) * sy + 1
+                first = linear[x, y, c, example]
+                index = first
+                value = input[first]
+                for row in first:width:first + (py - 1) * width
+                    for k in row:row + px - 1
+                        pixel = input[k]
+                        # Match findmax's ordering and retain the first index on ties.
+                        if isless(value, pixel)
+                            value = pixel
+                            index = k
+                        end
+                    end
+                end
+                layer.output[i, j, c, example] = value
+                layer.index[i, j, c, example] = index
             end
         end
     end

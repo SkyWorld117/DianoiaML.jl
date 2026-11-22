@@ -122,6 +122,44 @@ end
     @test all(==(6f0), upsample.δ)
 end
 
+@testset "Max pooling window order and batch splitting" begin
+    function check_pool(T, input_shape, pool_size, strides, batch)
+        layer = MaxPooling2D(; input_shape, pool_size, strides, precision=T)
+        initialize!(layer, batch)
+        rng = MersenneTwister(12)
+        choices = T[-Inf, -2, -0.0, 0.0, 1, 1, 2, Inf, NaN]
+        input = rand(rng, choices, input_shape..., batch)
+        expected = similar(layer.output)
+        indices = similar(layer.index)
+        linear = LinearIndices(input)
+        sx, sy = strides
+        px, py = pool_size
+        for b in axes(expected, 4), c in axes(expected, 3), j in axes(expected, 2), i in axes(expected, 1)
+            x, y = (i - 1) * sx, (j - 1) * sy
+            value, index = findmax(view(input, x + 1:x + px, y + 1:y + py, c, b))
+            expected[i, j, c, b] = value
+            indices[i, j, c, b] = linear[x + index[1], y + index[2], c, b]
+        end
+        @test activate!(layer, input) === nothing
+        @test isequal(layer.output, expected)
+        @test layer.index == indices
+
+        delta = rand(rng, T[-2, -1, 0, 1, 2], size(expected))
+        input_gradient = zeros(T, size(input))
+        for i in eachindex(delta)
+            input_gradient[indices[i]] += delta[i]
+        end
+        @test backward!(layer, input, delta) == input_gradient
+    end
+
+    for T in (Float16, BFloat16, Float32, Float64, BigFloat)
+        check_pool(T, (3, 5, 2), (2, 3), (1, 1), 3)
+        check_pool(T, (8, 9, 2), (1, 2), (2, 3), 5)
+    end
+    check_pool(Float32, (26, 26, 4), (2, 2), (2, 2), 128)
+    check_pool(Float32, (26, 26, 4), (3, 3), (1, 1), 56)
+end
+
 @testset "Convolution on a larger batch" begin
     layer = Conv2D(input_shape=(32, 32, 8), filter=32, kernel_size=(3, 3),
                    padding=1, activation_function=None, randomization=false)
