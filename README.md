@@ -36,8 +36,7 @@ GAN training uses the discriminator's real and fake targets from the network its
 The noise generator supplies one example per call. A discriminator can have one sigmoid
 output or two outputs ordered fake, real.
 
-`Softmax` uses the fused gradient with `Categorical_Cross_Entropy_Loss`. Older
-HDF5 models saved with `Softmax_CEL` load as `Softmax`.
+`Softmax` uses the fused gradient with `Categorical_Cross_Entropy_Loss`.
 
 `TConv2D` retains the zero-insertion and padding geometry used by existing saved models.
 
