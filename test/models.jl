@@ -1,3 +1,52 @@
+mutable struct ScaleLayer{I,A,U}
+    input_shape::Tuple{Int}
+    output_shape::Tuple{Int}
+    initialize::I
+    activate::A
+    update::U
+    output::Matrix{Float32}
+    δ::Matrix{Float32}
+end
+
+function ScaleLayer(; input_shape)
+    initialize = (layer, batch) -> begin
+        layer.output = zeros(Float32, layer.output_shape..., batch)
+        layer.δ = similar(layer.output)
+    end
+    activate = (layer, input) -> begin
+        layer.output .= 2f0 .* input
+        return nothing
+    end
+    update = (layer, optimizer, input, delta, rate, parameters) -> (layer.δ .= 2f0 .* delta)
+    return ScaleLayer(input_shape, input_shape, initialize, activate, update, zeros(Float32, 0, 0), zeros(Float32, 0, 0))
+end
+
+struct ConstantNoise
+    value::Float32
+end
+
+(noise::ConstantNoise)() = fill(noise.value, 1, 1)
+
+@testset "Layer methods and the custom layer protocol" begin
+    model = dense_model(1, 1)
+    dense = model.layers[2]
+    dense.weights .= 1f0
+    model.add_layer(model, ScaleLayer)
+    @test hasproperty(model, :activate)
+    @test hasproperty(dense, :save_layer)
+    @test model.layers[3] isa ScaleLayer
+
+    x = ones(Float32, 1, 2)
+    y = zero(x)
+    model.initialize(model, 2)
+    @test model.activate(model, x) == fill(2f0, 1, 2)
+    SGD.fit(; model, input_data=x, output_data=y, loss_function=Quadratic_Loss, monitor=Absolute,
+             batch=2, epochs=1, α=0.1, verbose=false)
+    @test only(dense.weights) ≈ 0.2f0
+    @test only(dense.biases) ≈ -0.8f0
+    @test_throws MethodError dense.activate(dense, ones(Float32, 1))
+end
+
 @testset "Dropout and reinitialization" begin
     model = Sequential()
     model.add_layer(model, Dropout; input_shape=(8,), rate=0.5)
@@ -20,8 +69,9 @@
 end
 
 @testset "GAN alternating gradients" begin
-    noise() = reshape(Float32[1], 1, 1)
+    noise = ConstantNoise(1f0)
     model = GAN(noise)
+    @test (@inferred model.noise_generator()) == ones(Float32, 1, 1)
     model.add_Glayer(model, Dense; input_shape=(1,), layer_size=1, activation_function=None, randomization=false)
     model.add_Dlayer(model, Dense; layer_size=1, activation_function=Sigmoid, randomization=false)
     generator, discriminator = model.layers[2:3]

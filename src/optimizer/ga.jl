@@ -1,6 +1,6 @@
 module GA
     using Random: default_rng, shuffle!
-    using ..DianoiaML: Residual, batch_buffer, batch_size_for, copy_examples!, sample_count
+    using ..DianoiaML: Residual, initialize!, activate!, batch_buffer, batch_size_for, copy_examples!, sample_count
 
     function fit(;models::Array, input_data::Array{Float32}, output_data::Array{Float32}, monitor,
                  α::Float64=0.01, num_copy::Int, epochs::Int=20, batch::Real=32, mini_batch::Union{Int,Nothing}=nothing,
@@ -10,35 +10,35 @@ module GA
         0 <= α <= 1 || throw(ArgumentError("mutation probability must be in [0, 1]"))
         epochs >= 0 || throw(ArgumentError("epochs must be nonnegative"))
         examples = sample_count(input_data, output_data)
-        size = batch_size_for(something(mini_batch, batch), examples)
-        steps = cld(examples, size)
+        batch_size = batch_size_for(something(mini_batch, batch), examples)
+        steps = cld(examples, batch_size)
         losses = zeros(Float64, length(models))
         fitness = zeros(Float64, num_copy)
         order = collect(1:examples)
-        x, y = batch_buffer(input_data, size), batch_buffer(output_data, size)
-        tail = rem(examples, size)
+        x, y = batch_buffer(input_data, batch_size), batch_buffer(output_data, batch_size)
+        tail = rem(examples, batch_size)
         tail_x, tail_y = tail == 0 ? (x, y) : (batch_buffer(input_data, tail), batch_buffer(output_data, tail))
         for model in models
-            model.initialize(model, size)
+            initialize!(model, batch_size)
         end
 
-        active_size = size
+        active_size = batch_size
         for epoch in 1:epochs
             loss = 0.0
             shuffle && shuffle!(rng, order)
-            for (step, first) in enumerate(1:size:examples)
-                count = min(size, examples - first + 1)
+            for (step, first) in enumerate(1:batch_size:examples)
+                count = min(batch_size, examples - first + 1)
                 if active_size != count
                     for model in models
-                        model.initialize(model, count)
+                        initialize!(model, count)
                     end
                     active_size = count
                 end
-                current_x, current_y = count == size ? (x, y) : (tail_x, tail_y)
+                current_x, current_y = count == batch_size ? (x, y) : (tail_x, tail_y)
                 copy_examples!(current_x, input_data, order, first)
                 copy_examples!(current_y, output_data, order, first)
                 for i in eachindex(models)
-                    prediction = models[i].activate(models[i], current_x)
+                    prediction = activate!(models[i], current_x)
                     losses[i] = monitor.func(prediction, current_y)
                 end
                 rank = sortperm(losses)

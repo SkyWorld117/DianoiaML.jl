@@ -1,4 +1,4 @@
-using HDF5
+using HDF5: h5open
 
 function load_layer!(model, add_layer, file, id)
     name = read(file, id)
@@ -12,14 +12,14 @@ function load_layer!(model, add_layer, file, id)
         add_layer(model, layer_type; args...)
     end
     layer = model.layers[model isa GAN ? model.num_Glayer + model.num_Dlayer + 1 : model.num_layer + 1]
-    layer.load_layer(layer, file, id)
+    load_layer!(layer, file, id)
 end
 
 function save_Sequential(model::Sequential, path::String)
     h5open(path, "w") do file
         write(file, "num_layer", model.num_layer)
         for i in 2:model.num_layer+1
-            model.layers[i].save_layer(model.layers[i], file, string(i-1))
+            save_layer(model.layers[i], file, string(i - 1))
         end
     end
 end
@@ -39,7 +39,7 @@ function save_GAN(model::GAN, path::String)
         write(file, "num_Glayer", model.num_Glayer)
         write(file, "num_Dlayer", model.num_Dlayer)
         for i in 2:model.num_Glayer+model.num_Dlayer+1
-            model.layers[i].save_layer(model.layers[i], file, string(i-1))
+            save_layer(model.layers[i], file, string(i - 1))
         end
     end
 end

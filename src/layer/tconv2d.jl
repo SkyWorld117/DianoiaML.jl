@@ -1,15 +1,10 @@
 module TConv2DM
+    import ..DianoiaML: AbstractLayer, initialize!, activate!, update!, save_layer, load_layer!
     using ..GlorotUniform: GUMatrix
     using ..DianoiaML: activation_gradient!
     using ..SpatialConvolution: Workspace, forward!, backward!
 
-    mutable struct TConv2D
-        save_layer::Any
-        load_layer::Any
-        activate::Any
-        initialize::Any
-        update::Any
-
+    mutable struct TConv2D <: AbstractLayer
         input_shape::NTuple{3,Int}
         output_shape::NTuple{3,Int}
         kernel_size::NTuple{2,Int}
@@ -52,14 +47,13 @@ module TConv2DM
             filters = randomization ? GUMatrix(area * input_shape[3], area * filter, filter_size) : zeros(Float32, filter_size)
             biases = zeros(Float32, filter)
 
-            new(save_TConv2D, load_TConv2D, activate_TConv2D, init_TConv2D, update_TConv2D,
-                input_shape, output_shape, kernel_size, activation_function, filters, biases, padding, filter,
+            new(input_shape, output_shape, kernel_size, activation_function, filters, biases, padding, filter,
                 strides, similar(filters), zeros(Float32, filter_size), zeros(Float32, filter_size),
                 similar(biases), zeros(Float32, filter), zeros(Float32, filter))
         end
     end
 
-    function init_TConv2D(layer::TConv2D, mini_batch::Int)
+    function initialize!(layer::TConv2D, mini_batch::Int)
         isdefined(layer, :value) && size(layer.value, 4) == mini_batch && return
         layer.value = zeros(Float32, layer.output_shape..., mini_batch)
         layer.output = similar(layer.value)
@@ -71,7 +65,7 @@ module TConv2DM
         layer.workspace = Workspace(size(layer.padding_input), layer.filters; stride=(1, 1), padding=0)
     end
 
-    function activate_TConv2D(layer::TConv2D, input::Array{Float32,4})
+    function activate!(layer::TConv2D, input::Array{Float32,4})
         size(input) == size(layer.δ) || throw(DimensionMismatch("unexpected transposed convolution input size"))
         x, y = layer.strides
         p = layer.padding
@@ -80,7 +74,7 @@ module TConv2DM
         forward!(layer, layer.padding_input)
     end
 
-    function update_TConv2D(layer::TConv2D, optimizer::String, input::Array{Float32,4}, δₗ₊₁,
+    function update!(layer::TConv2D, optimizer::String, input::Array{Float32,4}, δₗ₊₁,
                               α::Float64, parameters::Tuple, direction::Int=1)
         activation_gradient!(layer.∇biases, layer.activation_function, layer.value, δₗ₊₁)
         backward!(layer, layer.padding_input, layer.padded_gradient, optimizer, α, parameters, direction)
@@ -90,7 +84,7 @@ module TConv2DM
                                                p + 1:y:p + 1 + (size(input, 2) - 1) * y, :, :]
     end
 
-    function save_TConv2D(layer::TConv2D, file::Any, id::String)
+    function save_layer(layer::TConv2D, file, id::String)
         write(file, id, "TConv2D")
         write(file, id*"input_shape", collect(layer.input_shape))
         write(file, id*"filter", layer.filter)
@@ -103,12 +97,12 @@ module TConv2DM
         write(file, id*"biases", layer.biases)
     end
 
-    function load_TConv2D(layer::TConv2D, file::Any, id::String)
+    function load_layer!(layer::TConv2D, file, id::String)
         layer.filters = read(file, id*"filters")
         layer.biases = read(file, id*"biases")
     end
 
-    function get_args(file::Any, id::String)
+    function get_args(file, id::String)
         input_shape = tuple(read(file, id*"input_shape")...)
         filter = read(file, id*"filter")
         padding = read(file, id*"padding")

@@ -43,7 +43,7 @@ end
 function fit_gradient!(model, input_data, output_data, loss, monitor, optimizer, α, epochs, batch,
                        adaptive_parameters; shuffle, rng, verbose)
     examples = sample_count(input_data, output_data)
-    size = batch_size_for(batch, examples)
+    batch_size = batch_size_for(batch, examples)
     epochs >= 0 || throw(ArgumentError("epochs must be nonnegative"))
     if !isempty(adaptive_parameters)
         β₁, β₂, ϵ = adaptive_parameters
@@ -51,29 +51,29 @@ function fit_gradient!(model, input_data, output_data, loss, monitor, optimizer,
         0 < Float32(ϵ) < Inf32 || throw(ArgumentError("optimizer epsilon must be positive and finite"))
     end
 
-    model.initialize(model, size)
+    initialize!(model, batch_size)
     reset_optimizer!(model)
     model.loss = 0.0
     order = collect(1:examples)
-    x, y = batch_buffer(input_data, size), batch_buffer(output_data, size)
-    tail = rem(examples, size)
+    x, y = batch_buffer(input_data, batch_size), batch_buffer(output_data, batch_size)
+    tail = rem(examples, batch_size)
     tail_x, tail_y = tail == 0 ? (x, y) : (batch_buffer(input_data, tail), batch_buffer(output_data, tail))
-    active_size = size
+    active_size = batch_size
     step = 0
     for epoch in 1:epochs
         shuffle && shuffle!(rng, order)
-        for first in 1:size:examples
-            count = min(size, examples - first + 1)
+        for first in 1:batch_size:examples
+            count = min(batch_size, examples - first + 1)
             if active_size != count
-                model.initialize(model, count)
+                initialize!(model, count)
                 active_size = count
             end
-            current_x, current_y = count == size ? (x, y) : (tail_x, tail_y)
+            current_x, current_y = count == batch_size ? (x, y) : (tail_x, tail_y)
             copy_examples!(current_x, input_data, order, first)
             copy_examples!(current_y, output_data, order, first)
             step += 1
             parameters = isempty(adaptive_parameters) ? () : (step, adaptive_parameters...)
-            model.update(model, current_x, current_y, loss, monitor, optimizer, α, parameters...)
+            update!(model, current_x, current_y, loss, monitor, optimizer, α, parameters...)
         end
         verbose && println("Epoch ", epoch, " mean monitor ", model.loss / examples)
         model.loss = 0.0

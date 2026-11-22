@@ -1,13 +1,12 @@
 module DianoiaML
     include("tools/glorotuniform.jl")
     include("optimizer/parameter_update.jl")
+    include("layer/operations.jl")
     include("layer/spatial_convolution.jl")
 
     struct LogitGradient{A}
         data::A
     end
-
-    activate_layer(layer, input, training) = layer.activate(layer, input)
 
     activation_gradient!(dest, activation, values, delta) =
         activation.get_∇biases!(dest, values, delta)
@@ -56,6 +55,7 @@ module DianoiaML
     include("./layer/tconv2d.jl")
     using .TConv2DM:TConv2D
     export TConv2D
+    include("network/layer_stack.jl")
     include("./network/resnet.jl")
     using .resnet:ResNet
     export ResNet
@@ -64,7 +64,7 @@ module DianoiaML
     export Residual
 
     include("./network/sequential.jl")
-    using .sequential:Sequential, Hidden_Output_Layer
+    using .sequential:Sequential
     export Sequential, Hidden_Output_Layer
     include("./network/gan.jl")
     using .gan:GAN

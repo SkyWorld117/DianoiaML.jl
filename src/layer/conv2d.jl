@@ -1,15 +1,10 @@
 module Conv2DM
+    import ..DianoiaML: AbstractLayer, initialize!, activate!, update!, save_layer, load_layer!
     using ..GlorotUniform: GUMatrix
     using ..DianoiaML: activation_gradient!
     using ..SpatialConvolution: Workspace, forward!, backward!
 
-    mutable struct Conv2D
-        save_layer::Any
-        load_layer::Any
-        activate::Any
-        initialize::Any
-        update::Any
-
+    mutable struct Conv2D <: AbstractLayer
         input_shape::NTuple{3,Int}
         output_shape::NTuple{3,Int}
         kernel_size::NTuple{2,Int}
@@ -49,14 +44,13 @@ module Conv2DM
             filters = randomization ? GUMatrix(area * input_shape[3], area * filter, filter_size) : zeros(Float32, filter_size)
             biases = zeros(Float32, filter)
 
-            new(save_Conv2D, load_Conv2D, activate_Conv2D, init_Conv2D, update_Conv2D,
-                input_shape, output_shape, kernel_size, activation_function, filters, biases, padding, filter,
+            new(input_shape, output_shape, kernel_size, activation_function, filters, biases, padding, filter,
                 strides, similar(filters), zeros(Float32, filter_size), zeros(Float32, filter_size),
                 similar(biases), zeros(Float32, filter), zeros(Float32, filter))
         end
     end
 
-    function init_Conv2D(layer::Conv2D, mini_batch::Int)
+    function initialize!(layer::Conv2D, mini_batch::Int)
         isdefined(layer, :value) && size(layer.value, 4) == mini_batch && return
         layer.value = zeros(Float32, layer.output_shape..., mini_batch)
         layer.output = similar(layer.value)
@@ -65,17 +59,17 @@ module Conv2DM
         layer.workspace = Workspace(size(layer.δ), layer.filters; stride=layer.strides, padding=layer.padding)
     end
 
-    function activate_Conv2D(layer::Conv2D, input::Array{Float32,4})
+    function activate!(layer::Conv2D, input::Array{Float32,4})
         forward!(layer, input)
     end
 
-    function update_Conv2D(layer::Conv2D, optimizer::String, input::Array{Float32,4}, δₗ₊₁,
+    function update!(layer::Conv2D, optimizer::String, input::Array{Float32,4}, δₗ₊₁,
                               α::Float64, parameters::Tuple, direction::Int=1)
         activation_gradient!(layer.∇biases, layer.activation_function, layer.value, δₗ₊₁)
         backward!(layer, input, layer.δ, optimizer, α, parameters, direction)
     end
 
-    function save_Conv2D(layer::Conv2D, file::Any, id::String)
+    function save_layer(layer::Conv2D, file, id::String)
         write(file, id, "Conv2D")
         write(file, id*"input_shape", collect(layer.input_shape))
         write(file, id*"filter", layer.filter)
@@ -88,12 +82,12 @@ module Conv2DM
         write(file, id*"biases", layer.biases)
     end
 
-    function load_Conv2D(layer::Conv2D, file::Any, id::String)
+    function load_layer!(layer::Conv2D, file, id::String)
         layer.filters = read(file, id*"filters")
         layer.biases = read(file, id*"biases")
     end
 
-    function get_args(file::Any, id::String)
+    function get_args(file, id::String)
         input_shape = tuple(read(file, id*"input_shape")...)
         filter = read(file, id*"filter")
         padding = read(file, id*"padding")
