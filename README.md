@@ -6,7 +6,7 @@ The user guide and the To-Do list can be found [here](https://github.com/SkyWorl
 
 ## Setup
 
-Use Julia 1.10 or newer. The latest stable release tested here is Julia 1.13.4.
+Use Julia 1.13 or newer. The test suite has been verified on Julia 1.13.4.
 Run these commands from the repository root.
 
 ```sh
