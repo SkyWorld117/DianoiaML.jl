@@ -10,8 +10,9 @@ end
 
 function ParameterState(value, optimizer)
     gradient = zeros(accumulation_type(eltype(value)), size(value))
-    first = has_moments(optimizer) ? zero(gradient) : nothing
-    second = has_moments(optimizer) ? zero(gradient) : nothing
+    count = moment_count(optimizer)
+    first = count >= 1 ? zero(gradient) : nothing
+    second = count >= 2 ? zero(gradient) : nothing
     return ParameterState(value, gradient, first, second, optimizer.lr, true, 0)
 end
 

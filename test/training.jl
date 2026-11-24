@@ -3,7 +3,7 @@
     y = 2f0 .* x
     ordered = batches(x, y; batch_size=2, shuffle=false)
     @test length(ordered) == 3
-    for optimizer in (Adam(), AdaBelief(), SGD())
+    for optimizer in (Adam(), AdaBelief(), AdamW(), RMSProp(), SGD(), SGD(; momentum=0.9))
         seen = Vector{Float32}[]
         state = TrainingState(dense_model(1, 1), optimizer)
         monitor(actual, target) = begin
@@ -42,19 +42,22 @@ end
 @testset "Adaptive optimizer equations and repeated fits" begin
     x = ones(Float32, 1, 1)
     y = 0.7f0 .* x
-    for optimizer in (Adam, AdaBelief)
+    for optimizer in (Adam, AdamW, AdaBelief)
         model = dense_model(1, 1)
         layer = only(model.layers)
         w = m = v = 0.0
         lr, beta1, beta2, epsilon = 0.05, 0.8, 0.9, 1e-8
-        state = TrainingState(model, optimizer(; lr, beta1, beta2, epsilon))
+        decay = optimizer === AdamW ? 0.12 : 0.0
+        settings = (; lr, beta1, beta2, epsilon)
+        method = optimizer === AdamW ? AdamW(; settings..., weight_decay=decay) : optimizer(; settings...)
+        state = TrainingState(model, method)
         for run in 1:2
             for t in (3run-2):3run
                 g = 2 * (2w - only(y))
                 m = beta1 * m + (1 - beta1) * g
                 residual = optimizer === AdaBelief ? g - m : g
                 v = beta2 * v + (1 - beta2) * residual^2
-                w -= lr * (m / (1 - beta1^t)) / (sqrt(v / (1 - beta2^t)) + epsilon)
+                w = (1 - lr * decay) * w - lr * (m / (1 - beta1^t)) / (sqrt(v / (1 - beta2^t)) + epsilon)
             end
             fit!(state, [(x, y)]; loss=QuadraticLoss(), epochs=3)
             @test only(layer.weights) ≈ w atol=2f-7
@@ -62,6 +65,61 @@ end
             @test state.slots[1].step == 3run
         end
     end
+end
+
+@testset "AdamW decouples decay from the gradient" begin
+    layer = configured_dense(Float64[2;;])
+    layer.bias .= 3
+    state = TrainingState(layer, AdamW(; weight_decay=0.4))
+    set_group!(state, layer.weights; lr=0.25)
+    set_group!(state, layer.bias; trainable=false)
+    forward!(state, ones(1, 1))
+    backward!(state, zeros(1, 1))
+    step!(state)
+    @test only(layer.weights) ≈ 1.8
+    @test only(layer.bias) == 3
+    @test all(iszero, state.slots[1].first)
+    @test all(iszero, state.slots[1].second)
+    @test state.slots[2].step == 0
+
+    x, y = Float32[1 2], Float32[0.5 1.5]
+    model_a = configured_dense(Float32[2;;])
+    model_w = configured_dense(Float32[2;;])
+    fit!(TrainingState(model_a, Adam()), [(x, y)]; loss=QuadraticLoss(), epochs=4)
+    fit!(TrainingState(model_w, AdamW(; weight_decay=0)), [(x, y)]; loss=QuadraticLoss(), epochs=4)
+    @test state_dict(model_a) == state_dict(model_w)
+end
+
+@testset "Momentum SGD and RMSProp equations" begin
+    lr, momentum, rho, epsilon = 0.1, 0.8, 0.9, 1e-6
+    momentum_model = configured_dense(Float64[2;;])
+    rms_model = configured_dense(Float64[2;;])
+    momentum_state = TrainingState(momentum_model, SGD(; lr, momentum))
+    rms_state = TrainingState(rms_model, RMSProp(; lr, rho, epsilon))
+    w_momentum = w_rms = 2.0
+    velocity = squares = 0.0
+
+    for g in (1.0, -2.0, 0.25, 0.0)
+        velocity = momentum * velocity + g
+        squares = rho * squares + (1 - rho) * g^2
+        w_momentum -= lr * velocity
+        w_rms -= lr * g / (sqrt(squares) + epsilon)
+        for state in (momentum_state, rms_state)
+            forward!(state, ones(1, 1))
+            backward!(state, fill(g, 1, 1))
+            step!(state)
+        end
+        @test only(momentum_model.weights) ≈ w_momentum
+        @test only(rms_model.weights) ≈ w_rms
+        @test only(momentum_state.slots[1].first) ≈ velocity
+        @test only(rms_state.slots[1].first) ≈ squares
+    end
+    @test_throws ArgumentError SGD(; momentum=1)
+    @test_throws ArgumentError SGD(; momentum=-0.1)
+    @test_throws ArgumentError RMSProp(; rho=1)
+    @test_throws ArgumentError RMSProp(; epsilon=0)
+    @test_throws ArgumentError AdamW(; weight_decay=Inf)
+    @test_throws ArgumentError AdamW(; weight_decay=-0.01)
 end
 
 @testset "Convergence" begin

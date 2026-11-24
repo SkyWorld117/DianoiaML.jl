@@ -9,7 +9,7 @@ module DianoiaML
     export Identity, ReLU, Sigmoid, Softmax, Tanh, GELU
     export MeanSquaredError, QuadraticLoss, AbsoluteLoss, CategoricalCrossEntropy, BinaryCrossEntropy
     export CrossEntropyWithLogits, BinaryCrossEntropyWithLogits, loss_value, loss_gradient!
-    export SGD, Adam, AdaBelief, TrainingState, batches, fit!, forward!, backward!, step!, predict
+    export SGD, Adam, AdamW, RMSProp, AdaBelief, TrainingState, batches, fit!, forward!, backward!, step!, predict
     export shape, parameters, gradients, set_group!, zero_grad!, persistent_buffers
     export layer_cache, layer_parameters, layer_gradients, output_shape
     export GAN, GANState, generate, fit_population!

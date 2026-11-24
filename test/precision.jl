@@ -58,6 +58,22 @@
     end
 end
 
+@testset "Optimizer precision" begin
+    for T in (Float16, BFloat16, Float32, Float64, BigFloat)
+        A = T in (Float16, BFloat16) ? Float32 : T
+        lr = 0.02
+        for optimizer in (AdamW(; lr), RMSProp(; lr), SGD(; lr, momentum=0.9))
+            layer = configured_dense(ones(T, 1, 1))
+            state = TrainingState(layer, optimizer)
+            x = ones(T, 1, 1)
+            fit!(state, [(x, zero(x))]; loss=QuadraticLoss(), epochs=2)
+            @test eltype(layer.weights) === T
+            @test eltype(state.slots[1].first) === A
+            @test zero(T) < only(layer.weights) < one(T)
+        end
+    end
+end
+
 @testset "Spatial precision" begin
     x = reshape(Float64.(1:8), 2, 2, 1, 2)
     for Layer in (Conv2D, TConv2D)

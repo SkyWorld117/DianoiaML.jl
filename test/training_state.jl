@@ -144,3 +144,25 @@ end
         @test parameters(reloaded.model)["left.weights"] === parameters(reloaded.model)["right.weights"]
     end
 end
+
+@testset "Checkpoint round-trips SGD, RMSProp, and AdamW" begin
+    x, y = Float32[1 2], Float32[2 4]
+    mktempdir() do directory
+        path = joinpath(directory, "optimizer.h5")
+        for optimizer in (SGD(), SGD(; lr=0.02, momentum=0.75), RMSProp(; rho=0.95),
+                          AdamW(; lr=0.002, weight_decay=0.08))
+            state = TrainingState(dense_model(1, 1), optimizer)
+            fit!(state, [(x, y)]; loss=QuadraticLoss(), epochs=2)
+            save_checkpoint(path, state)
+            resumed = TrainingState(dense_model(1, 1), Adam())
+            load_checkpoint!(resumed, path)
+            @test resumed.optimizer === optimizer
+            @test resumed.slots[1].first == state.slots[1].first
+            @test resumed.slots[1].second == state.slots[1].second
+            for training in (state, resumed)
+                fit!(training, [(x, y)]; loss=QuadraticLoss(), epochs=2)
+            end
+            @test state_dict(resumed.model) == state_dict(state.model)
+        end
+    end
+end
