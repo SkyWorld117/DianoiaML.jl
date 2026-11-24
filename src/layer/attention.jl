@@ -158,7 +158,7 @@ function forward!(layer::Attention{T,A}, run::Execution, input, mode) where {T,A
     if !isdefined(run.cache, :workspace) || size(run.cache.workspace.probabilities) != dims
         run.cache.workspace = AttentionWorkspace(T, A, size(Q), size(K), layer.heads)
     end
-    work = run.cache.workspace
+    work = run.cache.workspace::AttentionWorkspace{T,A}
     Q = from_projection(work.query, Q)
     K = from_projection(work.key, K)
     V = from_projection(work.value, V)
