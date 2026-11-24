@@ -34,11 +34,11 @@ function layer_cache(layer::Dense{T}) where {T}
 end
 layer_gradients(::Dense, cache::DenseCache) = (; weights=cache.weights, bias=cache.bias)
 
-function multiply!(dest, left, right, ::Type{A}, scale=one(A)) where {A}
+function multiply!(dest, left, right, ::Type{A}, α=one(A)) where {A}
     x = eltype(left) === A ? left : A.(left)
     y = eltype(right) === A ? right : A.(right)
     result = eltype(dest) === A ? dest : similar(dest, A)
-    mul!(result, x, y, scale, zero(A))
+    mul!(result, x, y, α, zero(A))
     result === dest || copyto!(dest, result)
     return dest
 end
@@ -53,28 +53,31 @@ function forward!(layer::Dense{T}, cache::DenseCache{T,A}, input::Array{T}, mode
         cache.output = Array{T}(undef, dims)
         cache.input_gradient = similar(input)
     end
-    multiply!(cache.values, layer.weights, reshape(input, size(input, 1), :), A)
-    cache.values .+= layer.bias
-    activate_values!(reshape(cache.output, size(cache.values)), layer.activation, cache.values)
+    z = cache.values
+    multiply!(z, layer.weights, reshape(input, size(input, 1), :), A)
+    z .+= layer.bias
+    activate_values!(reshape(cache.output, size(z)), layer.activation, z)
     return cache.output
 end
 
-function backward!(layer::Dense{T}, cache::DenseCache{T,A}, input, delta; compute_parameters=true) where {T,A}
-    size(delta) == size(cache.output) || throw(DimensionMismatch("Dense cotangent shape differs"))
-    activation_gradient!(cache.delta, layer.activation, cache.values, reshape(cache.output, size(cache.values)),
-                         reshape(delta, size(cache.values)))
+function backward!(layer::Dense{T}, cache::DenseCache{T,A}, input, ∇y; compute_parameters=true) where {T,A}
+    size(∇y) == size(cache.output) || throw(DimensionMismatch("Dense cotangent shape differs"))
+    z, δ = cache.values, cache.delta
+    activation_gradient!(δ, layer.activation, z, reshape(cache.output, size(z)), reshape(∇y, size(z)))
     width = size(input, 1)
-    multiply!(reshape(cache.input_gradient, width, :), transpose(layer.weights), cache.delta, A)
+    ∇x = reshape(cache.input_gradient, width, :)
+    multiply!(∇x, transpose(layer.weights), δ, A)
     if compute_parameters
         batch = A(size(input, ndims(input)))
-        multiply!(cache.weights, cache.delta, transpose(reshape(input, width, :)), A, inv(batch))
-        fill!(cache.bias, zero(A))
-        for b in axes(cache.delta, 2)
-            @inbounds @simd for i in axes(cache.delta, 1)
-                cache.bias[i] += convert(A, cache.delta[i, b])
+        ∇W, ∇b = cache.weights, cache.bias
+        multiply!(∇W, δ, transpose(reshape(input, width, :)), A, inv(batch))
+        fill!(∇b, zero(A))
+        for b in axes(δ, 2)
+            @inbounds @simd for i in axes(δ, 1)
+                ∇b[i] += convert(A, δ[i, b])
             end
         end
-        cache.bias ./= batch
+        ∇b ./= batch
     end
     return cache.input_gradient
 end

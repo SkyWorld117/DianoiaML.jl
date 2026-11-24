@@ -141,70 +141,71 @@ end
 
 function forward!(layer::Attention{T,A}, run::Execution, input, mode) where {T,A}
     query, context, mask = attention_inputs(layer, input)
-    q = execute!(run.children.query, query, mode)
-    k = execute!(run.children.key, context, mode)
-    v = execute!(run.children.value, context, mode)
-    dims = (size(k, 2), size(q, 2), layer.heads, size(q, 3))
+    Q = execute!(run.children.query, query, mode)
+    K = execute!(run.children.key, context, mode)
+    V = execute!(run.children.value, context, mode)
+    dims = (size(K, 2), size(Q, 2), layer.heads, size(Q, 3))
     if !isdefined(run.cache, :workspace) || size(run.cache.workspace.probabilities) != dims
-        run.cache.workspace = AttentionWorkspace(T, A, size(q), size(k), layer.heads)
+        run.cache.workspace = AttentionWorkspace(T, A, size(Q), size(K), layer.heads)
     end
     work = run.cache.workspace
-    q = from_projection(work.query, q)
-    k = from_projection(work.key, k)
-    v = from_projection(work.value, v)
-    head_width = size(q, 1) ÷ layer.heads
-    @views for example in axes(q, 3), head in 1:layer.heads
+    Q = from_projection(work.query, Q)
+    K = from_projection(work.key, K)
+    V = from_projection(work.value, V)
+    head_width = size(Q, 1) ÷ layer.heads
+    # Tokens are columns. Each head computes S = KᵀQ / sqrt(d), P = softmax(S), and H = VP.
+    @views for example in axes(Q, 3), head in 1:layer.heads
         features = (head - 1) * head_width + 1:head * head_width
-        probabilities = work.probabilities[:, :, head, example]
-        mul!(probabilities, transpose(k[features, :, example]), q[features, :, example],
-             layer.scale, zero(A))
-        normalize_scores!(probabilities, layer.causal, mask, example)
-        mul!(work.attended[features, :, example], v[features, :, example], probabilities)
+        P = work.probabilities[:, :, head, example]
+        mul!(P, transpose(K[features, :, example]), Q[features, :, example], layer.scale, zero(A))
+        normalize_scores!(P, layer.causal, mask, example)
+        mul!(work.attended[features, :, example], V[features, :, example], P)
     end
     T === A || copyto!(work.projection_input, work.attended)
     return execute!(run.children.projection, work.projection_input, mode)
 end
 
-function softmax_gradient!(gradient, probabilities)
-    @inbounds for query in axes(probabilities, 2)
-        projection = zero(eltype(gradient))
-        @simd for key in axes(probabilities, 1)
-            projection += probabilities[key, query] * gradient[key, query]
+function softmax_gradient!(∇P, P)
+    @inbounds for query in axes(P, 2)
+        projection = zero(eltype(∇P))
+        @simd for key in axes(P, 1)
+            projection += P[key, query] * ∇P[key, query]
         end
-        @simd for key in axes(probabilities, 1)
-            gradient[key, query] = probabilities[key, query] * (gradient[key, query] - projection)
+        @simd for key in axes(P, 1)
+            ∇P[key, query] = P[key, query] * (∇P[key, query] - projection)
         end
     end
 end
 
-function backward!(layer::Attention{T,A}, run::Execution, input, delta; compute_parameters) where {T,A}
+function backward!(layer::Attention{T,A}, run::Execution, input, ∇y; compute_parameters) where {T,A}
     work = run.cache.workspace
-    d_attended = differentiate!(run.children.projection, delta; compute_parameters)
-    T === A || (d_attended = copyto!(work.attended, d_attended))
-    q = something(work.query, run.children.query.output)
-    k = something(work.key, run.children.key.output)
-    v = something(work.value, run.children.value.output)
-    head_width = size(q, 1) ÷ layer.heads
-    @views for example in axes(q, 3), head in 1:layer.heads
+    ∇H = differentiate!(run.children.projection, ∇y; compute_parameters)
+    T === A || (∇H = copyto!(work.attended, ∇H))
+    Q = something(work.query, run.children.query.output)
+    K = something(work.key, run.children.key.output)
+    V = something(work.value, run.children.value.output)
+    head_width = size(Q, 1) ÷ layer.heads
+    @views for example in axes(Q, 3), head in 1:layer.heads
         features = (head - 1) * head_width + 1:head * head_width
-        probabilities = work.probabilities[:, :, head, example]
-        upstream = d_attended[features, :, example]
-        ds = work.score_gradient
-        mul!(work.value_gradient[features, :, example], upstream, transpose(probabilities))
-        mul!(ds, transpose(v[features, :, example]), upstream)
-        softmax_gradient!(ds, probabilities)
-        mul!(work.query_gradient[features, :, example], k[features, :, example],
-             ds, layer.scale, zero(A))
-        mul!(work.key_gradient[features, :, example], q[features, :, example],
-             transpose(ds), layer.scale, zero(A))
+        P = work.probabilities[:, :, head, example]
+        ∇H_head = ∇H[features, :, example]
+        ∇P = work.score_gradient
+        mul!(work.value_gradient[features, :, example], ∇H_head, transpose(P))
+        mul!(∇P, transpose(V[features, :, example]), ∇H_head)
+        softmax_gradient!(∇P, P)
+        ∇S = ∇P
+        mul!(work.query_gradient[features, :, example], K[features, :, example],
+             ∇S, layer.scale, zero(A))
+        mul!(work.key_gradient[features, :, example], Q[features, :, example],
+             transpose(∇S), layer.scale, zero(A))
     end
-    dq = differentiate!(run.children.query, work.query_gradient; compute_parameters)
-    dk = differentiate!(run.children.key, work.key_gradient; compute_parameters)
-    dv = differentiate!(run.children.value, work.value_gradient; compute_parameters)
+    ∇q = differentiate!(run.children.query, work.query_gradient; compute_parameters)
+    ∇k = differentiate!(run.children.key, work.key_gradient; compute_parameters)
+    ∇v = differentiate!(run.children.value, work.value_gradient; compute_parameters)
     if layer.cross_attention
-        dk .+= dv
-        return length(input) == 3 ? (dq, dk, nothing) : (dq, dk)
+        ∇k .+= ∇v
+        return length(input) == 3 ? (∇q, ∇k, nothing) : (∇q, ∇k)
     end
-    dq .= convert.(A, dq) .+ convert.(A, dk) .+ convert.(A, dv)
-    return input isa Tuple ? (dq, nothing) : dq
+    ∇q .= convert.(A, ∇q) .+ convert.(A, ∇k) .+ convert.(A, ∇v)
+    return input isa Tuple ? (∇q, nothing) : ∇q
 end

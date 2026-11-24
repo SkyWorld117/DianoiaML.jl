@@ -43,22 +43,22 @@ function upsample!(output, input, scale)
     end
 end
 
-function backward!(layer::UpSampling2D, cache::UpsamplingCache, input, delta; compute_parameters=true)
-    activation_gradient!(cache.delta, layer.activation, cache.values, cache.output, delta)
+function backward!(layer::UpSampling2D, cache::UpsamplingCache, input, ∇y; compute_parameters=true)
+    activation_gradient!(cache.delta, layer.activation, cache.values, cache.output, ∇y)
     return upsample_gradient!(cache.input_gradient, cache.delta, layer.scale)
 end
 
-function upsample_gradient!(dst, delta, scale)
-    A = accumulation_type(eltype(delta))
+function upsample_gradient!(∇x, δ, scale)
+    A = accumulation_type(eltype(δ))
     x, y = scale
-    @inbounds for b in axes(dst, 4), c in axes(dst, 3), j in axes(dst, 2), i in axes(dst, 1)
+    @inbounds for b in axes(∇x, 4), c in axes(∇x, 3), j in axes(∇x, 2), i in axes(∇x, 1)
         total = zero(A)
         for sy in 1:y
             @simd for sx in 1:x
-                total += convert(A, delta[(i - 1) * x + sx, (j - 1) * y + sy, c, b])
+                total += convert(A, δ[(i - 1) * x + sx, (j - 1) * y + sy, c, b])
             end
         end
-        dst[i, j, c, b] = total
+        ∇x[i, j, c, b] = total
     end
-    return dst
+    return ∇x
 end

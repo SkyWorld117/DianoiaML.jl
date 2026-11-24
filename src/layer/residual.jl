@@ -40,7 +40,7 @@ function forward!(::Residual, run::Execution, input::AbstractArray, mode)
     return sum_tensors!(run.cache, :output, input, branch)
 end
 
-function backward!(::Residual, run::Execution, input, delta; compute_parameters)
-    branch = differentiate!(run.children.branch, delta; compute_parameters)
-    return sum_tensors!(run.cache, :gradient, delta, branch)
+function backward!(::Residual, run::Execution, input, ∇y; compute_parameters)
+    ∇branch = differentiate!(run.children.branch, ∇y; compute_parameters)
+    return sum_tensors!(run.cache, :gradient, ∇y, ∇branch)
 end

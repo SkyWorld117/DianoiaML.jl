@@ -9,9 +9,9 @@ function LayerNorm(width::Int; epsilon::Real=1//100000, precision::Type{T}=Float
     checked_precision(T)
     width > 0 || throw(ArgumentError("LayerNorm requires positive features"))
     A = accumulation_type(T)
-    eps = convert(A, epsilon)
-    0 < eps < Inf || throw(ArgumentError("LayerNorm epsilon must be positive and finite"))
-    return LayerNorm(ones(T, width), zeros(T, width), eps)
+    ε = convert(A, epsilon)
+    0 < ε < Inf || throw(ArgumentError("LayerNorm epsilon must be positive and finite"))
+    return LayerNorm(ones(T, width), zeros(T, width), ε)
 end
 
 precision_type(::LayerNorm{T}) where {T} = T
@@ -25,7 +25,7 @@ mutable struct LayerNormCache{T,A}
     normalized::Array{A}
     inverse_std::Vector{A}
     output::Array{T}
-    δ::Array{T}
+    input_gradient::Array{T}
     LayerNormCache{T,A}(scale, bias) where {T,A} = new{T,A}(scale, bias)
 end
 
@@ -38,7 +38,7 @@ function resize_norm!(cache::LayerNormCache{T,A}, dims) where {T,A}
     cache.normalized = Array{A}(undef, dims)
     cache.inverse_std = Vector{A}(undef, prod(Base.tail(dims)))
     cache.output = Array{T}(undef, dims)
-    cache.δ = similar(cache.output)
+    cache.input_gradient = similar(cache.output)
     return
 end
 
@@ -48,67 +48,71 @@ function forward!(layer::LayerNorm{T,A}, cache::LayerNormCache{T,A}, input::Arra
     resize_norm!(cache, size(input))
     x = reshape(input, width, :)
     z = reshape(cache.normalized, size(x))
-    output = reshape(cache.output, size(x))
+    y = reshape(cache.output, size(x))
+    γ, β, ε = layer.scale, layer.bias, layer.epsilon
     count = A(width)
     @inbounds for col in axes(x, 2)
         total = zero(A)
         @simd for i in 1:width
             total += convert(A, x[i, col])
         end
-        mean = total / count
+        μ = total / count
         squared = zero(A)
         @simd for i in 1:width
-            centered = convert(A, x[i, col]) - mean
+            centered = convert(A, x[i, col]) - μ
             z[i, col] = centered
             squared += abs2(centered)
         end
-        inverse_std = inv(sqrt(squared / count + layer.epsilon))
-        cache.inverse_std[col] = inverse_std
+        σ² = squared / count
+        σ⁻¹ = inv(sqrt(σ² + ε))
+        cache.inverse_std[col] = σ⁻¹
         @simd for i in 1:width
-            z[i, col] *= inverse_std
-            output[i, col] = z[i, col] * convert(A, layer.scale[i]) + convert(A, layer.bias[i])
+            z[i, col] *= σ⁻¹
+            y[i, col] = z[i, col] * convert(A, γ[i]) + convert(A, β[i])
         end
     end
     return cache.output
 end
 
-function backward!(layer::LayerNorm{T,A}, cache::LayerNormCache{T,A}, input, delta; compute_parameters=true) where {T,A}
-    size(delta) == size(input) == size(cache.output) ||
+function backward!(layer::LayerNorm{T,A}, cache::LayerNormCache{T,A}, input, upstream; compute_parameters=true) where {T,A}
+    size(upstream) == size(input) == size(cache.output) ||
         throw(DimensionMismatch("LayerNorm cotangent shape differs"))
     width = length(layer.scale)
-    xgrad = reshape(cache.δ, width, :)
-    z = reshape(cache.normalized, size(xgrad))
-    dy = reshape(delta, size(xgrad))
+    ∇x = reshape(cache.input_gradient, width, :)
+    z = reshape(cache.normalized, size(∇x))
+    ∇y = reshape(upstream, size(∇x))
+    γ = layer.scale
+    ∇γ, ∇β = cache.scale_gradient, cache.bias_gradient
     count = A(width)
     if compute_parameters
-        fill!(cache.scale_gradient, zero(A))
-        fill!(cache.bias_gradient, zero(A))
+        fill!(∇γ, zero(A))
+        fill!(∇β, zero(A))
     end
-    @inbounds for col in axes(dy, 2)
+    @inbounds for col in axes(∇y, 2)
         total, projection = zero(A), zero(A)
         @simd for i in 1:width
-            h = convert(A, dy[i, col]) * convert(A, layer.scale[i])
+            h = convert(A, ∇y[i, col]) * convert(A, γ[i])
             total += h
             projection += h * z[i, col]
         end
-        mean, mean_projection = total / count, projection / count
-        inverse_std = cache.inverse_std[col]
+        μ, mean_projection = total / count, projection / count
+        σ⁻¹ = cache.inverse_std[col]
         @simd for i in 1:width
-            h = convert(A, dy[i, col]) * convert(A, layer.scale[i])
-            xgrad[i, col] = inverse_std * (h - mean - z[i, col] * mean_projection)
+            h = convert(A, ∇y[i, col]) * convert(A, γ[i])
+            ∇x[i, col] = σ⁻¹ * (h - μ - z[i, col] * mean_projection)
         end
         if compute_parameters
             @simd for i in 1:width
-                g = convert(A, dy[i, col])
-                cache.scale_gradient[i] += g * z[i, col]
-                cache.bias_gradient[i] += g
+                g = convert(A, ∇y[i, col])
+                ∇γ[i] += g * z[i, col]
+                ∇β[i] += g
             end
         end
     end
     if compute_parameters
         batch = A(size(input, ndims(input)))
-        cache.scale_gradient ./= batch
-        cache.bias_gradient ./= batch
+        ∇γ ./= batch
+        ∇β ./= batch
     end
-    return cache.δ
+    return cache.input_gradient
 end

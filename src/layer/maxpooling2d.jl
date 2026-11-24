@@ -72,14 +72,14 @@ function pool_example!(layer, input, output, indices, example)
     end
 end
 
-backward!(::MaxPooling2D, cache::PoolCache, input, delta; compute_parameters=true) =
-    pool_gradient!(cache.input_gradient, delta, cache.indices)
+backward!(::MaxPooling2D, cache::PoolCache, input, ∇y; compute_parameters=true) =
+    pool_gradient!(cache.input_gradient, ∇y, cache.indices)
 
-function pool_gradient!(dst::Array{T,4}, delta, indices) where {T}
-    fill!(dst, zero(T))
+function pool_gradient!(∇x::Array{T,4}, ∇y, indices) where {T}
+    fill!(∇x, zero(T))
     # Overlapping windows can select the same element.
-    @inbounds for i in eachindex(delta, indices)
-        dst[indices[i]] += delta[i]
+    @inbounds for i in eachindex(∇y, indices)
+        ∇x[indices[i]] += ∇y[i]
     end
-    return dst
+    return ∇x
 end

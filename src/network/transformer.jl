@@ -34,11 +34,11 @@ function forward!(::TransformerBlock, run::Execution, input, mode)
     return execute!(run.children.feedforward, hidden, mode)
 end
 
-function backward!(::TransformerBlock, run::Execution, input, delta; compute_parameters)
-    hidden = differentiate!(run.children.feedforward, delta; compute_parameters)
-    attended = differentiate!(run.children.dropout, hidden; compute_parameters)
-    norm = differentiate!(run.children.attention, attended; compute_parameters)
-    branch = differentiate!(run.children.norm, input isa Tuple ? first(norm) : norm; compute_parameters)
-    dx = sum_tensors!(run.cache, :gradient, hidden, branch)
-    return input isa Tuple ? (dx, nothing) : dx
+function backward!(::TransformerBlock, run::Execution, input, ∇y; compute_parameters)
+    ∇hidden = differentiate!(run.children.feedforward, ∇y; compute_parameters)
+    ∇attended = differentiate!(run.children.dropout, ∇hidden; compute_parameters)
+    ∇norm = differentiate!(run.children.attention, ∇attended; compute_parameters)
+    ∇branch = differentiate!(run.children.norm, input isa Tuple ? first(∇norm) : ∇norm; compute_parameters)
+    ∇x = sum_tensors!(run.cache, :gradient, ∇hidden, ∇branch)
+    return input isa Tuple ? (∇x, nothing) : ∇x
 end
