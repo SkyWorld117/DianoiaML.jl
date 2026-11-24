@@ -1,4 +1,7 @@
 module DianoiaML
+    import AcceleratedKernels as AK
+    import KernelAbstractions as KA
+    using KernelAbstractions: @kernel, @index, @localmem, @synchronize
     using BFloat16s: BFloat16
     using LinearAlgebra: mul!
     using Random: Xoshiro, default_rng, rand!, shuffle!
@@ -15,7 +18,9 @@ module DianoiaML
     export GAN, GANState, generate, fit_population!
     export Absolute, Classification, oneHot
     export state_dict, load_state!, save_checkpoint, load_checkpoint!
+    export to_device
 
+    include("device.jl")
     include("tools/precision.jl")
     include("tools/precision_io.jl")
     include("tools/glorotuniform.jl")
@@ -49,5 +54,10 @@ module DianoiaML
 
     include("tools/checkpoint.jl")
     include("tools/oneHot.jl")
+    include("gpu/kernels.jl")
+    include("gpu/spatial.jl")
+    include("gpu/attention.jl")
+    include("gpu/training.jl")
+    include("gpu/model.jl")
     include("precompile_workload.jl")
 end

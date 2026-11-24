@@ -1,9 +1,9 @@
 using .SpatialConvolution: Workspace, convolve!, conv_im2col!, conv_direct!,
     ∇conv_data_im2col!, ∇conv_data_direct!, ∇conv_filter_im2col!, ∇conv_filter_direct!
 
-struct Convolution{Transposed,T<:AbstractFloat,F<:AbstractActivation} <: AbstractLayer
-    filters::Array{T,4}
-    bias::Vector{T}
+struct Convolution{Transposed,T<:AbstractFloat,F<:AbstractActivation,W<:AbstractArray{T,4},B<:AbstractVector{T}} <: AbstractLayer
+    filters::W
+    bias::B
     padding::Int
     stride::NTuple{2,Int}
     activation::F
@@ -23,7 +23,12 @@ function Convolution{Transposed}(input::Int, output::Int; kernel_size::NTuple{2,
     dims = (output, input, kernel_size...)
     area = prod(kernel_size)
     filters = randomization ? GUMatrix(area * input, area * output, dims, T) : zeros(T, dims)
-    return Convolution{Transposed,T,typeof(activation)}(filters, zeros(T, output), padding, stride, activation)
+    return Convolution{Transposed}(filters, zeros(T, output), padding, stride, activation)
+end
+
+function Convolution{P}(filters::W, bias::B, padding, stride, activation::F) where
+        {P,T,W<:AbstractArray{T,4},B<:AbstractVector{T},F<:AbstractActivation}
+    return Convolution{P,T,F,W,B}(filters, bias, padding, stride, activation)
 end
 
 precision_type(::Convolution{P,T}) where {P,T} = T
@@ -54,35 +59,48 @@ function output_shape(layer::Convolution{P}, input) where {P}
     return (output..., length(layer.bias))
 end
 
-mutable struct ConvolutionCache{T,A}
-    filters::Array{A,4}
-    bias::Vector{A}
-    values::Array{T,4}
-    output::Array{T,4}
-    delta::Array{T,4}
-    input_gradient::Array{T,4}
-    padded::Array{T,4}
-    padded_gradient::Array{T,4}
-    workspace::Workspace
-    ConvolutionCache{T,A}(filters, bias) where {T,A} = new{T,A}(filters, bias)
+struct DeviceConvolutionWorkspace{M}
+    patches::M
+    patch_gradient::M
+    values::M
+end
+
+mutable struct ConvolutionCache{T,A,G<:AbstractArray{A,4},B<:AbstractVector{A},V<:AbstractArray{T,4}}
+    filters::G
+    bias::B
+    values::V
+    output::V
+    delta::V
+    input_gradient::V
+    padded::V
+    padded_gradient::V
+    workspace::Union{Workspace,DeviceConvolutionWorkspace}
+
+    ConvolutionCache(filters::G, bias::B, ::Type{V}) where
+        {T,A,G<:AbstractArray{A,4},B<:AbstractVector{A},V<:AbstractArray{T,4}} =
+        new{T,A,G,B,V}(filters, bias)
 end
 
 function layer_cache(layer::Convolution{P,T}) where {P,T}
     A = accumulation_type(T)
-    return ConvolutionCache{T,A}(similar(layer.filters, A), similar(layer.bias, A))
+    return ConvolutionCache(similar(layer.filters, A), similar(layer.bias, A), typeof(layer.filters))
 end
 layer_gradients(::Convolution, cache::ConvolutionCache) = (; filters=cache.filters, bias=cache.bias)
 
 function resize_convolution!(layer::Convolution{P,T}, cache, input) where {P,T}
     isdefined(cache, :input_gradient) && size(cache.input_gradient) == size(input) && return
     dims = (shape(layer, size(input)[1:3])..., size(input, 4))
-    cache.values = Array{T}(undef, dims)
+    cache.values = similar(input, T, dims)
     cache.output, cache.delta = similar(cache.values), similar(cache.values)
     cache.input_gradient = similar(input)
     if P
         expanded = ntuple(d -> (size(input, d) - 1) * layer.stride[d] + 2 * layer.padding + 1, 2)
-        cache.padded = zeros(T, expanded..., size(input, 3), size(input, 4))
+        cache.padded = zeros_like(input, T, (expanded..., size(input, 3), size(input, 4)))
         cache.padded_gradient = similar(cache.padded)
+    end
+    if gpu_array(input)
+        cache.workspace = device_convolution_workspace(cache)
+    elseif P
         cache.workspace = Workspace(size(cache.padded), layer.filters; stride=(1, 1), padding=0)
     else
         cache.workspace = Workspace(size(input), layer.filters; stride=layer.stride, padding=layer.padding)
@@ -92,8 +110,9 @@ end
 
 strided_indices(layer, input, d) = range(layer.padding + 1; step=layer.stride[d], length=size(input, d))
 
-function forward!(layer::Convolution{P,T}, cache::ConvolutionCache{T}, input::Array{T,4}, mode) where {P,T}
+function forward!(layer::Convolution{P,T}, cache::ConvolutionCache{T}, input::AbstractArray{T,4}, mode) where {P,T}
     resize_convolution!(layer, cache, input)
+    gpu_array(input) && return gpu_convolution_forward!(layer, cache, input)
     work = cache.workspace
     source = input
     if P
@@ -111,6 +130,7 @@ function backward!(layer::Convolution{P,T}, cache::ConvolutionCache{T,A}, input,
     size(∇y) == size(cache.output) || throw(DimensionMismatch("convolution cotangent shape differs"))
     δ = cache.delta
     activation_gradient!(δ, layer.activation, cache.values, cache.output, ∇y)
+    gpu_array(input) && return gpu_convolution_backward!(layer, cache, input, compute_parameters)
     work = cache.workspace
     source = P ? cache.padded : input
     ∇x = P ? cache.padded_gradient : cache.input_gradient

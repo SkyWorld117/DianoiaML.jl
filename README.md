@@ -1,6 +1,6 @@
 # DianoiaML.jl
 
-DianoiaML is a Julia library for building and training neural networks on the CPU.
+DianoiaML is a Julia library for building and training neural networks on CPUs and GPUs.
 It supports handwritten backpropagation, composable networks, and Transformer blocks.
 
 ## Quick start
@@ -23,4 +23,4 @@ predict(model, Float32[3;;])
 ```
 
 [Wiki](https://github.com/SkyWorld117/DianoiaML.jl/wiki) · [Development setup](https://github.com/SkyWorld117/DianoiaML.jl/wiki/Installation#development) ·
-[MNIST example](https://github.com/SkyWorld117/DianoiaML.jl/wiki/MNIST) · [Release notes](UPDATES.md)
+[MNIST example](https://github.com/SkyWorld117/DianoiaML.jl/wiki/MNIST) · [GPU training](https://github.com/SkyWorld117/DianoiaML.jl/wiki/GPU) · [Release notes](UPDATES.md)

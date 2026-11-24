@@ -18,8 +18,8 @@ function output_shape(layer::Residual, input)
 end
 
 mutable struct ResidualCache
-    output::Array
-    gradient::Array
+    output::AbstractArray
+    gradient::AbstractArray
     ResidualCache() = new()
 end
 
@@ -28,7 +28,8 @@ layer_cache(::Residual) = ResidualCache()
 function sum_tensors!(cache, field, input, branch)
     size(input) == size(branch) || throw(DimensionMismatch("residual branch must preserve the input shape"))
     T = promote_type(eltype(input), eltype(branch))
-    if !isdefined(cache, field) || size(getfield(cache, field)) != size(input) || eltype(getfield(cache, field)) !== T
+    if !isdefined(cache, field) || size(getfield(cache, field)) != size(input) ||
+       eltype(getfield(cache, field)) !== T || !same_device(getfield(cache, field), input)
         setfield!(cache, field, similar(input, T))
     end
     dest = getfield(cache, field)

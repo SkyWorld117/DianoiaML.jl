@@ -30,15 +30,15 @@ Features occupy the first axis, tokens the second and examples the last.
 Self-attention accepts features or `(features, key_mask)`. Cross-attention
 accepts `(query, context)` and an optional third key mask. True keys are visible.
 """
-struct Attention{T<:AbstractFloat,A<:AbstractFloat} <: AbstractLayer
+struct Attention{T<:AbstractFloat,A<:AbstractFloat,D<:Dense{T,Identity}} <: AbstractLayer
     heads::Int
     causal::Bool
     cross_attention::Bool
     scale::A
-    query::Dense{T,Identity}
-    key::Dense{T,Identity}
-    value::Dense{T,Identity}
-    projection::Dense{T,Identity}
+    query::D
+    key::D
+    value::D
+    projection::D
 end
 
 function Attention(width::Int; heads::Int, context_features::Union{Int,Nothing}=nothing,
@@ -81,8 +81,17 @@ function output_shape(layer::Attention, input)
     return (width, sequence_length(query))
 end
 
+struct DeviceAttentionWorkspace{S,H,G}
+    probabilities::S
+    score_gradient::S
+    attended::H
+    query_gradient::G
+    key_gradient::G
+    value_gradient::G
+end
+
 mutable struct AttentionCache{T,A}
-    workspace::AttentionWorkspace{T,A}
+    workspace::Union{AttentionWorkspace{T,A},DeviceAttentionWorkspace}
     AttentionCache{T,A}() where {T,A} = new()
 end
 layer_cache(::Attention{T,A}) where {T,A} = AttentionCache{T,A}()
@@ -93,7 +102,7 @@ function attention_inputs(layer::Attention{T}, input) where {T}
     required <= length(parts) <= required + 1 || throw(DimensionMismatch("attention input count differs"))
     query = first(parts)
     context = layer.cross_attention ? parts[2] : query
-    query isa Array{T,3} && context isa Array{T,3} ||
+    query isa AbstractArray{T,3} && context isa AbstractArray{T,3} ||
         throw(ArgumentError("attention requires features × tokens × examples tensors"))
     size(query, 1) == size(layer.query.weights, 2) && size(context, 1) == size(layer.key.weights, 2) ||
         throw(DimensionMismatch("attention feature count differs"))
@@ -141,6 +150,7 @@ end
 
 function forward!(layer::Attention{T,A}, run::Execution, input, mode) where {T,A}
     query, context, mask = attention_inputs(layer, input)
+    gpu_array(query) && return gpu_attention_forward!(layer, run, query, context, mask, mode)
     Q = execute!(run.children.query, query, mode)
     K = execute!(run.children.key, context, mode)
     V = execute!(run.children.value, context, mode)
@@ -179,6 +189,7 @@ end
 
 function backward!(layer::Attention{T,A}, run::Execution, input, ∇y; compute_parameters) where {T,A}
     work = run.cache.workspace
+    work isa DeviceAttentionWorkspace && return gpu_attention_backward!(layer, run, input, ∇y, compute_parameters)
     ∇H = differentiate!(run.children.projection, ∇y; compute_parameters)
     T === A || (∇H = copyto!(work.attended, ∇H))
     Q = something(work.query, run.children.query.output)

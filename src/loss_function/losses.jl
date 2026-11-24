@@ -21,12 +21,14 @@ squared_scale(::MeanSquaredError, output) = inv(loss_type(output)(feature_count(
 
 function loss_value(loss::Union{QuadraticLoss,MeanSquaredError}, ŷ, y)
     check_loss_shape(ŷ, y)
+    gpu_array(ŷ) && return gpu_loss_value(loss, ŷ, y)
     A = loss_type(ŷ)
     return sum(i -> abs2(A(ŷ[i]) - A(y[i])), eachindex(ŷ, y)) * squared_scale(loss, ŷ)
 end
 
 function loss_gradient!(∇ŷ, loss::Union{QuadraticLoss,MeanSquaredError}, ŷ, y)
     check_loss_shape(ŷ, y)
+    y = compatible_target(ŷ, y)
     A = loss_type(ŷ)
     scale = 2 * squared_scale(loss, ŷ)
     return ∇ŷ .= scale .* (A.(ŷ) .- A.(y))
@@ -34,28 +36,33 @@ end
 
 function loss_value(::AbsoluteLoss, ŷ, y)
     check_loss_shape(ŷ, y)
+    gpu_array(ŷ) && return gpu_loss_value(AbsoluteLoss(), ŷ, y)
     A = loss_type(ŷ)
     return sum(i -> abs(A(ŷ[i]) - A(y[i])), eachindex(ŷ, y))
 end
 
 function loss_gradient!(∇ŷ, ::AbsoluteLoss, ŷ, y)
     check_loss_shape(ŷ, y)
+    y = compatible_target(ŷ, y)
     return ∇ŷ .= sign.(ŷ .- y)
 end
 
 function loss_value(::CategoricalCrossEntropy, p, y)
     check_loss_shape(p, y)
+    gpu_array(p) && return gpu_loss_value(CategoricalCrossEntropy(), p, y)
     ε = probability_floor(eltype(p))
     return sum(i -> -y[i] * log(max(p[i], ε)), eachindex(p, y))
 end
 
 function loss_gradient!(∇p, ::CategoricalCrossEntropy, p, y)
     check_loss_shape(p, y)
+    y = compatible_target(p, y)
     return ∇p .= -y ./ max.(p, probability_floor(eltype(p)))
 end
 
 function loss_value(::BinaryCrossEntropy, output, target)
     check_loss_shape(output, target)
+    gpu_array(output) && return gpu_loss_value(BinaryCrossEntropy(), output, target)
     ε = probability_floor(eltype(output))
     return sum(eachindex(output, target)) do i
         y, p = target[i], output[i]
@@ -65,12 +72,14 @@ end
 
 function loss_gradient!(∇p, ::BinaryCrossEntropy, p, y)
     check_loss_shape(p, y)
+    y = compatible_target(p, y)
     ε = probability_floor(eltype(p))
     return ∇p .= (1 .- y) ./ max.(1 .- p, ε) .- y ./ max.(p, ε)
 end
 
 function loss_value(::BinaryCrossEntropyWithLogits, output, target)
     check_loss_shape(output, target)
+    gpu_array(output) && return gpu_loss_value(BinaryCrossEntropyWithLogits(), output, target)
     A = loss_type(output)
     return sum(eachindex(output, target)) do i
         z, y = A(output[i]), A(target[i])
@@ -80,12 +89,14 @@ end
 
 function loss_gradient!(∇z, ::BinaryCrossEntropyWithLogits, z, y)
     check_loss_shape(z, y)
+    y = compatible_target(z, y)
     A = loss_type(z)
     return ∇z .= sigmoid.(A.(z)) .- A.(y)
 end
 
 function loss_value(::CrossEntropyWithLogits, output, target)
     check_loss_shape(output, target)
+    gpu_array(output) && return gpu_loss_value(CrossEntropyWithLogits(), output, target)
     A = loss_type(output)
     width = size(output, 1)
     z, y = reshape(output, width, :), reshape(target, width, :)
@@ -102,6 +113,7 @@ end
 
 function loss_gradient!(dest, ::CrossEntropyWithLogits, output, target)
     check_loss_shape(output, target)
+    gpu_array(output) && return gpu_crossentropy_gradient!(dest, output, target)
     A = loss_type(output)
     width = size(output, 1)
     z, y, ∇z = map(x -> reshape(x, width, :), (output, target, dest))

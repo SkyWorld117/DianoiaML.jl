@@ -39,6 +39,7 @@ function activate_values!(out, ::GELU, x)
 end
 
 function activate_values!(out, ::Softmax, x)
+    gpu_array(x) && return gpu_softmax!(out, x)
     eltype(x) <: Union{Float32,Float64} && return softmax!(out, x; dims=1)
     A = accumulation_type(eltype(x))
     width = size(x, 1)
@@ -65,6 +66,7 @@ function activation_gradient!(∇x, ::GELU, x, y, ∇y)
 end
 
 function activation_gradient!(out, ::Softmax, x, y, upstream)
+    gpu_array(y) && return gpu_softmax_backward!(out, y, upstream)
     A = accumulation_type(eltype(y))
     width = size(y, 1)
     ∇x, p, ∇p = map(a -> reshape(a, width, :), (out, y, upstream))
@@ -81,15 +83,16 @@ function activation_gradient!(out, ::Softmax, x, y, upstream)
 end
 
 mutable struct ActivationCache
-    output::Array
-    gradient::Array
+    output::AbstractArray
+    gradient::AbstractArray
     ActivationCache() = new()
 end
 
 layer_cache(::AbstractActivation) = ActivationCache()
 
 function forward!(layer::AbstractActivation, cache::ActivationCache, input, mode)
-    if !isdefined(cache, :output) || size(cache.output) != size(input) || eltype(cache.output) !== eltype(input)
+    if !isdefined(cache, :output) || size(cache.output) != size(input) ||
+       eltype(cache.output) !== eltype(input) || !same_device(cache.output, input)
         cache.output, cache.gradient = similar(input), similar(input)
     end
     return activate_values!(cache.output, layer, input)

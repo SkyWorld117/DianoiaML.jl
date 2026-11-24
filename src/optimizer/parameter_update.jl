@@ -94,9 +94,10 @@ function update_parameters!(::SGD, w, ∇w, ::Nothing, ::Nothing, α, t)
     return
 end
 
-function update_parameters!(optimizer::SGD, w, ∇w, velocity::Array, ::Nothing, rate, t)
+function update_parameters!(optimizer::SGD, w, ∇w, velocity::AbstractArray, ::Nothing, rate, t)
     A = eltype(∇w)
     α, μ = A(rate), A(optimizer.momentum)
+    gpu_array(w) && return launch!(momentum_gpu!, w, ∇w, velocity, α, μ)
     @inbounds @simd for i in eachindex(w, ∇w, velocity)
         v = μ * velocity[i] + ∇w[i]
         velocity[i] = v
@@ -109,6 +110,7 @@ function update_parameters!(optimizer::RMSProp, w, ∇w, squares, ::Nothing, rat
     A = eltype(∇w)
     α, ε = A(rate), A(optimizer.epsilon)
     ρ, gain = A(optimizer.rho), A(1 - optimizer.rho)
+    gpu_array(w) && return launch!(rmsprop_gpu!, w, ∇w, squares, α, ε, ρ, gain)
     @inbounds @simd for i in eachindex(w, ∇w, squares)
         g = ∇w[i]
         v = ρ * squares[i] + gain * abs2(g)
@@ -132,6 +134,10 @@ function update_parameters!(optimizer::Union{Adam,AdamW,AdaBelief}, w, ∇w, fir
     ε = A(optimizer.epsilon)
     scale = weight_scale(optimizer, α, A)
     belief = optimizer isa AdaBelief
+    if gpu_array(w)
+        return launch!(adaptive_optimizer_gpu!, w, ∇w, first, second,
+                       α̂, ε, scale, decay₁, decay₂, gain₁, gain₂, correction, belief)
+    end
     @inbounds @simd for i in eachindex(w, ∇w, first, second)
         g = ∇w[i]
         m = decay₁ * first[i] + gain₁ * g

@@ -78,12 +78,24 @@ function differentiate!(run::Execution, delta; compute_parameters=true)
     return cotangent_as(run.input, derivative)
 end
 
-cpu_batch(input::Array) = input
-cpu_batch(input::AbstractArray) = Array(input)
-cpu_batch(inputs::Union{Tuple,NamedTuple}) = map(cpu_batch, inputs)
+function parameter_reference(layer)
+    arrays = layer_parameters(layer)
+    isempty(arrays) || return first(arrays)
+    for child in layer_children(layer)
+        reference = parameter_reference(child)
+        reference === nothing || return reference
+    end
+    return nothing
+end
+
+execution_device(::Nothing, input) = device_of(input)
+execution_device(reference, input) = device_of(reference)
 
 """Predict using inference buffers independent of any pending training pass."""
-predict(model::AbstractLayer, input) = execute!(execution(model), cpu_batch(input))
+function predict(model::AbstractLayer, input)
+    backend = execution_device(parameter_reference(model), input)
+    return execute!(execution(model), batch_on(backend, input))
+end
 
 function walk_layers(f, layer, prefix="")
     f(layer, prefix)
@@ -101,7 +113,7 @@ end
 
 """Return named references to a model's parameters, including shared arrays."""
 function parameters(model)
-    result = Dict{String,Array{<:AbstractFloat}}()
+    result = Dict{String,AbstractArray{<:AbstractFloat}}()
     walk_layers(model) do layer, prefix
         for (name, value) in pairs(layer_parameters(layer))
             result[prefix * string(name)] = value

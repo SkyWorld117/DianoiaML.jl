@@ -5,6 +5,7 @@ Classification(; threshold=1//2) = Classification(threshold)
 
 function (monitor::Classification)(output, target)
     check_loss_shape(output, target)
+    gpu_array(output) && return gpu_classification(monitor, output, target)
     width = size(output, 1)
     predicted, expected = reshape(output, width, :), reshape(target, width, :)
     errors = 0

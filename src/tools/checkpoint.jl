@@ -1,5 +1,5 @@
 function model_arrays(model)
-    arrays = Dict{String,Array}(parameters(model))
+    arrays = Dict{String,AbstractArray}(parameters(model))
     walk_layers(model) do layer, prefix
         for (name, value) in pairs(persistent_buffers(layer))
             arrays[prefix * "buffers." * string(name)] = value
@@ -9,14 +9,14 @@ function model_arrays(model)
 end
 
 """Return a snapshot of the model's named parameters and persistent buffers."""
-state_dict(model) = Dict(name => copy(value) for (name, value) in model_arrays(model))
+state_dict(model) = Dict(name => Array(value) for (name, value) in model_arrays(model))
 
 function validate_state_arrays(dest, saved)
     keys(dest) == keys(saved) || throw(ArgumentError("checkpoint model keys differ"))
-    sources = IdDict{Any,Array}()
+    sources = IdDict{Any,AbstractArray}()
     for (name, value) in dest
         source = saved[name]
-        source isa Array && size(value) == size(source) && eltype(value) == eltype(source) ||
+        source isa AbstractArray && size(value) == size(source) && eltype(value) == eltype(source) ||
             throw(DimensionMismatch("invalid checkpoint array at $name"))
         previous = get!(sources, value, source)
         isequal(previous, source) || throw(ArgumentError("conflicting values for tied array $name"))
@@ -72,7 +72,7 @@ function write_training_state(file, state::TrainingState)
     model = create_group(file, "model")
     for (i, name) in enumerate(sort!(collect(keys(arrays))))
         write(model, "name_$i", name)
-        write_array(model, "value_$i", arrays[name])
+        write_array(model, "value_$i", host_array(arrays[name]))
     end
     optimizer = create_group(file, "parameters")
     for (i, slot) in enumerate(state.slots)
@@ -81,9 +81,9 @@ function write_training_state(file, state::TrainingState)
         write_number(group, "rate", slot.lr)
         write(group, "trainable", slot.trainable)
         write(group, "step", slot.step)
-        write_array(group, "gradient", slot.gradient)
-        slot.first === nothing || write_array(group, "first", slot.first)
-        slot.second === nothing || write_array(group, "second", slot.second)
+        write_array(group, "gradient", host_array(slot.gradient))
+        slot.first === nothing || write_array(group, "first", host_array(slot.first))
+        slot.second === nothing || write_array(group, "second", host_array(slot.second))
     end
     links = create_group(file, "aliases")
     for (i, (name, index)) in enumerate(state.aliases)

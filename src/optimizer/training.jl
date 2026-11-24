@@ -33,7 +33,9 @@ end
 Base.length(data::Batches) = cld(data.count, data.batch_size)
 Base.IteratorEltype(::Type{<:Batches}) = Base.EltypeUnknown()
 
-select_examples(x::AbstractArray, indices) = selectdim(x, ndims(x), indices)
+select_examples(x::Array, indices) = selectdim(x, ndims(x), indices)
+select_examples(x::AbstractArray, indices) =
+    gpu_array(x) ? gather_examples(x, indices) : selectdim(x, ndims(x), indices)
 select_examples(inputs::Union{Tuple,NamedTuple}, indices) = map(x -> select_examples(x, indices), inputs)
 
 function Base.iterate(data::Batches)
