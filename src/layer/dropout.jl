@@ -32,12 +32,12 @@ end
 
 function apply_dropout!(dst, layer, samples, input)
     A = accumulation_type(eltype(input))
-    rate = A(layer.rate)
-    scale = inv(one(A) - rate)
-    return dst .= ifelse.(samples .>= rate, input .* scale, zero(A))
+    p = A(layer.rate)
+    scale = inv(one(A) - p)
+    return dst .= ifelse.(samples .≥ p, input .* scale, zero(A))
 end
 
-function backward!(layer::Dropout, cache::DropoutCache, input, delta; compute_parameters=true)
-    cache.active || return delta
-    return apply_dropout!(cache.gradient, layer, cache.samples, delta)
+function backward!(layer::Dropout, cache::DropoutCache, input, ∇y; compute_parameters=true)
+    cache.active || return ∇y
+    return apply_dropout!(cache.gradient, layer, cache.samples, ∇y)
 end

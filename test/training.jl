@@ -46,18 +46,19 @@ end
         model = dense_model(1, 1)
         layer = only(model.layers)
         w = m = v = 0.0
-        lr, beta1, beta2, epsilon = 0.05, 0.8, 0.9, 1e-8
-        decay = optimizer === AdamW ? 0.12 : 0.0
-        settings = (; lr, beta1, beta2, epsilon)
-        method = optimizer === AdamW ? AdamW(; settings..., weight_decay=decay) : optimizer(; settings...)
+        α, β₁, β₂, ε = 0.05, 0.8, 0.9, 1e-8
+        λ = optimizer === AdamW ? 0.12 : 0.0
+        settings = (; lr=α, beta1=β₁, beta2=β₂, epsilon=ε)
+        method = optimizer === AdamW ? AdamW(; settings..., weight_decay=λ) : optimizer(; settings...)
         state = TrainingState(model, method)
         for run in 1:2
             for t in (3run-2):3run
                 g = 2 * (2w - only(y))
-                m = beta1 * m + (1 - beta1) * g
+                m = β₁ * m + (1 - β₁) * g
                 residual = optimizer === AdaBelief ? g - m : g
-                v = beta2 * v + (1 - beta2) * residual^2
-                w = (1 - lr * decay) * w - lr * (m / (1 - beta1^t)) / (sqrt(v / (1 - beta2^t)) + epsilon)
+                v = β₂ * v + (1 - β₂) * residual^2
+                m̂, v̂ = m / (1 - β₁^t), v / (1 - β₂^t)
+                w = (1 - α * λ) * w - α * m̂ / (sqrt(v̂) + ε)
             end
             fit!(state, [(x, y)]; loss=QuadraticLoss(), epochs=3)
             @test only(layer.weights) ≈ w atol=2f-7
@@ -91,19 +92,19 @@ end
 end
 
 @testset "Momentum SGD and RMSProp equations" begin
-    lr, momentum, rho, epsilon = 0.1, 0.8, 0.9, 1e-6
+    α, μ, ρ, ε = 0.1, 0.8, 0.9, 1e-6
     momentum_model = configured_dense(Float64[2;;])
     rms_model = configured_dense(Float64[2;;])
-    momentum_state = TrainingState(momentum_model, SGD(; lr, momentum))
-    rms_state = TrainingState(rms_model, RMSProp(; lr, rho, epsilon))
+    momentum_state = TrainingState(momentum_model, SGD(; lr=α, momentum=μ))
+    rms_state = TrainingState(rms_model, RMSProp(; lr=α, rho=ρ, epsilon=ε))
     w_momentum = w_rms = 2.0
     velocity = squares = 0.0
 
     for g in (1.0, -2.0, 0.25, 0.0)
-        velocity = momentum * velocity + g
-        squares = rho * squares + (1 - rho) * g^2
-        w_momentum -= lr * velocity
-        w_rms -= lr * g / (sqrt(squares) + epsilon)
+        velocity = μ * velocity + g
+        squares = ρ * squares + (1 - ρ) * g^2
+        w_momentum -= α * velocity
+        w_rms -= α * g / (sqrt(squares) + ε)
         for state in (momentum_state, rms_state)
             forward!(state, ones(1, 1))
             backward!(state, fill(g, 1, 1))

@@ -106,26 +106,27 @@ function forward!(layer::Convolution{P,T}, cache::ConvolutionCache{T}, input::Ar
     return activate_values!(cache.output, layer.activation, cache.values)
 end
 
-function backward!(layer::Convolution{P,T}, cache::ConvolutionCache{T,A}, input, delta;
+function backward!(layer::Convolution{P,T}, cache::ConvolutionCache{T,A}, input, ∇y;
                    compute_parameters=true) where {P,T,A}
-    size(delta) == size(cache.output) || throw(DimensionMismatch("convolution cotangent shape differs"))
-    activation_gradient!(cache.delta, layer.activation, cache.values, cache.output, delta)
+    size(∇y) == size(cache.output) || throw(DimensionMismatch("convolution cotangent shape differs"))
+    δ = cache.delta
+    activation_gradient!(δ, layer.activation, cache.values, cache.output, ∇y)
     work = cache.workspace
     source = P ? cache.padded : input
-    dx = P ? cache.padded_gradient : cache.input_gradient
-    convolve!(∇conv_data_im2col!, ∇conv_data_direct!, dx, cache.delta, work.kernel, work)
+    ∇x = P ? cache.padded_gradient : cache.input_gradient
+    convolve!(∇conv_data_im2col!, ∇conv_data_direct!, ∇x, δ, work.kernel, work)
     if P
-        @views cache.input_gradient .= dx[strided_indices(layer, input, 1), strided_indices(layer, input, 2), :, :]
+        @views cache.input_gradient .= ∇x[strided_indices(layer, input, 1), strided_indices(layer, input, 2), :, :]
     end
     if compute_parameters
-        batch = A(size(delta, 4))
-        convolve!(∇conv_filter_im2col!, ∇conv_filter_direct!, work.gradient, source, cache.delta, work; alpha=inv(batch))
+        batch = A(size(∇y, 4))
+        convolve!(∇conv_filter_im2col!, ∇conv_filter_direct!, work.gradient, source, δ, work; alpha=inv(batch))
         permutedims!(cache.filters, work.gradient, (4, 3, 1, 2))
-        for f in axes(delta, 3)
+        for f in axes(∇y, 3)
             total = zero(A)
-            @inbounds for b in axes(delta, 4), j in axes(delta, 2)
-                @simd for i in axes(delta, 1)
-                    total += convert(A, cache.delta[i, j, f, b])
+            @inbounds for b in axes(∇y, 4), j in axes(∇y, 2)
+                @simd for i in axes(∇y, 1)
+                    total += convert(A, δ[i, j, f, b])
                 end
             end
             cache.bias[f] = total / batch

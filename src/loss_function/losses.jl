@@ -19,82 +19,82 @@ end
 squared_scale(::QuadraticLoss, output) = one(loss_type(output))
 squared_scale(::MeanSquaredError, output) = inv(loss_type(output)(feature_count(output)))
 
-function loss_value(loss::Union{QuadraticLoss,MeanSquaredError}, output, target)
-    check_loss_shape(output, target)
-    A = loss_type(output)
-    return sum(i -> abs2(A(output[i]) - A(target[i])), eachindex(output, target)) * squared_scale(loss, output)
+function loss_value(loss::Union{QuadraticLoss,MeanSquaredError}, ŷ, y)
+    check_loss_shape(ŷ, y)
+    A = loss_type(ŷ)
+    return sum(i -> abs2(A(ŷ[i]) - A(y[i])), eachindex(ŷ, y)) * squared_scale(loss, ŷ)
 end
 
-function loss_gradient!(dest, loss::Union{QuadraticLoss,MeanSquaredError}, output, target)
-    check_loss_shape(output, target)
-    A = loss_type(output)
-    scale = 2 * squared_scale(loss, output)
-    return dest .= scale .* (A.(output) .- A.(target))
+function loss_gradient!(∇ŷ, loss::Union{QuadraticLoss,MeanSquaredError}, ŷ, y)
+    check_loss_shape(ŷ, y)
+    A = loss_type(ŷ)
+    scale = 2 * squared_scale(loss, ŷ)
+    return ∇ŷ .= scale .* (A.(ŷ) .- A.(y))
 end
 
-function loss_value(::AbsoluteLoss, output, target)
-    check_loss_shape(output, target)
-    A = loss_type(output)
-    return sum(i -> abs(A(output[i]) - A(target[i])), eachindex(output, target))
+function loss_value(::AbsoluteLoss, ŷ, y)
+    check_loss_shape(ŷ, y)
+    A = loss_type(ŷ)
+    return sum(i -> abs(A(ŷ[i]) - A(y[i])), eachindex(ŷ, y))
 end
 
-function loss_gradient!(dest, ::AbsoluteLoss, output, target)
-    check_loss_shape(output, target)
-    return dest .= sign.(output .- target)
+function loss_gradient!(∇ŷ, ::AbsoluteLoss, ŷ, y)
+    check_loss_shape(ŷ, y)
+    return ∇ŷ .= sign.(ŷ .- y)
 end
 
-function loss_value(::CategoricalCrossEntropy, output, target)
-    check_loss_shape(output, target)
-    floor = probability_floor(eltype(output))
-    return sum(i -> -target[i] * log(max(output[i], floor)), eachindex(output, target))
+function loss_value(::CategoricalCrossEntropy, p, y)
+    check_loss_shape(p, y)
+    ε = probability_floor(eltype(p))
+    return sum(i -> -y[i] * log(max(p[i], ε)), eachindex(p, y))
 end
 
-function loss_gradient!(dest, ::CategoricalCrossEntropy, output, target)
-    check_loss_shape(output, target)
-    return dest .= -target ./ max.(output, probability_floor(eltype(output)))
+function loss_gradient!(∇p, ::CategoricalCrossEntropy, p, y)
+    check_loss_shape(p, y)
+    return ∇p .= -y ./ max.(p, probability_floor(eltype(p)))
 end
 
 function loss_value(::BinaryCrossEntropy, output, target)
     check_loss_shape(output, target)
-    floor = probability_floor(eltype(output))
+    ε = probability_floor(eltype(output))
     return sum(eachindex(output, target)) do i
         y, p = target[i], output[i]
-        -y * log(max(p, floor)) - (1 - y) * log(max(1 - p, floor))
+        -y * log(max(p, ε)) - (1 - y) * log(max(1 - p, ε))
     end
 end
 
-function loss_gradient!(dest, ::BinaryCrossEntropy, output, target)
-    check_loss_shape(output, target)
-    floor = probability_floor(eltype(output))
-    return dest .= (1 .- target) ./ max.(1 .- output, floor) .- target ./ max.(output, floor)
+function loss_gradient!(∇p, ::BinaryCrossEntropy, p, y)
+    check_loss_shape(p, y)
+    ε = probability_floor(eltype(p))
+    return ∇p .= (1 .- y) ./ max.(1 .- p, ε) .- y ./ max.(p, ε)
 end
 
 function loss_value(::BinaryCrossEntropyWithLogits, output, target)
     check_loss_shape(output, target)
     A = loss_type(output)
     return sum(eachindex(output, target)) do i
-        x, y = A(output[i]), A(target[i])
-        max(x, zero(A)) - x * y + log1p(exp(-abs(x)))
+        z, y = A(output[i]), A(target[i])
+        max(z, zero(A)) - z * y + log1p(exp(-abs(z)))
     end
 end
 
-function loss_gradient!(dest, ::BinaryCrossEntropyWithLogits, output, target)
-    check_loss_shape(output, target)
-    A = loss_type(output)
-    return dest .= sigmoid.(A.(output)) .- A.(target)
+function loss_gradient!(∇z, ::BinaryCrossEntropyWithLogits, z, y)
+    check_loss_shape(z, y)
+    A = loss_type(z)
+    return ∇z .= sigmoid.(A.(z)) .- A.(y)
 end
 
 function loss_value(::CrossEntropyWithLogits, output, target)
     check_loss_shape(output, target)
     A = loss_type(output)
     width = size(output, 1)
-    logits, labels = reshape(output, width, :), reshape(target, width, :)
+    z, y = reshape(output, width, :), reshape(target, width, :)
     total = zero(A)
-    @inbounds for col in axes(logits, 2)
-        peak = A(maximum(view(logits, :, col)))
-        normalizer = log(sum(i -> exp(A(logits[i, col]) - peak), axes(logits, 1)))
-        @simd for i in axes(logits, 1)
-            total += A(labels[i, col]) * (normalizer - (A(logits[i, col]) - peak))
+    @inbounds for col in axes(z, 2)
+        peak = A(maximum(view(z, :, col)))
+        log_Z = log(sum(i -> exp(A(z[i, col]) - peak), axes(z, 1)))
+        @simd for i in axes(z, 1)
+            total += A(y[i, col]) * (log_Z - (A(z[i, col]) - peak))
         end
     end
     return total
@@ -104,16 +104,16 @@ function loss_gradient!(dest, ::CrossEntropyWithLogits, output, target)
     check_loss_shape(output, target)
     A = loss_type(output)
     width = size(output, 1)
-    logits, labels, gradient = map(x -> reshape(x, width, :), (output, target, dest))
-    @inbounds for col in axes(logits, 2)
-        peak = A(maximum(view(logits, :, col)))
-        normalizer, mass = zero(A), zero(A)
-        @simd for i in axes(logits, 1)
-            normalizer += exp(A(logits[i, col]) - peak)
-            mass += A(labels[i, col])
+    z, y, ∇z = map(x -> reshape(x, width, :), (output, target, dest))
+    @inbounds for col in axes(z, 2)
+        peak = A(maximum(view(z, :, col)))
+        Z, mass = zero(A), zero(A)
+        @simd for i in axes(z, 1)
+            Z += exp(A(z[i, col]) - peak)
+            mass += A(y[i, col])
         end
-        @simd for i in axes(logits, 1)
-            gradient[i, col] = (mass / normalizer) * exp(A(logits[i, col]) - peak) - A(labels[i, col])
+        @simd for i in axes(z, 1)
+            ∇z[i, col] = (mass / Z) * exp(A(z[i, col]) - peak) - A(y[i, col])
         end
     end
     return dest

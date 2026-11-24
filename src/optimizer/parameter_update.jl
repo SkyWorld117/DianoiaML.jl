@@ -18,8 +18,8 @@ struct Adam{T<:AbstractFloat} <: AbstractOptimizer
     beta2::T
     epsilon::T
     function Adam(; lr::Real=1//1000, beta1::Real=9//10, beta2::Real=999//1000, epsilon::Real=1//100000000)
-        rate, b1, b2, eps = adaptive_settings(lr, beta1, beta2, epsilon)
-        new{typeof(rate)}(rate, b1, b2, eps)
+        α, β₁, β₂, ε = adaptive_settings(lr, beta1, beta2, epsilon)
+        new{typeof(α)}(α, β₁, β₂, ε)
     end
 end
 
@@ -32,9 +32,9 @@ struct AdamW{T<:AbstractFloat} <: AbstractOptimizer
     weight_decay::T
     function AdamW(; lr::Real=1//1000, beta1::Real=9//10, beta2::Real=999//1000,
                    epsilon::Real=1//100000000, weight_decay::Real=1//100)
-        rate, b1, b2, eps, decay = adaptive_settings(lr, beta1, beta2, epsilon, weight_decay)
-        0 <= decay < Inf || throw(ArgumentError("weight decay must be nonnegative and finite"))
-        new{typeof(rate)}(rate, b1, b2, eps, decay)
+        α, β₁, β₂, ε, λ = adaptive_settings(lr, beta1, beta2, epsilon, weight_decay)
+        0 <= λ < Inf || throw(ArgumentError("weight decay must be nonnegative and finite"))
+        new{typeof(α)}(α, β₁, β₂, ε, λ)
     end
 end
 
@@ -44,11 +44,11 @@ struct RMSProp{T<:AbstractFloat} <: AbstractOptimizer
     rho::T
     epsilon::T
     function RMSProp(; lr::Real=1//100, rho::Real=99//100, epsilon::Real=1//100000000)
-        rate, decay, eps = optimizer_settings(lr, rho, epsilon)
-        validate_rate(rate)
-        0 <= decay < 1 || throw(ArgumentError("rho must be in [0, 1)"))
-        validate_epsilon(eps)
-        new{typeof(rate)}(rate, decay, eps)
+        α, ρ, ε = optimizer_settings(lr, rho, epsilon)
+        validate_rate(α)
+        0 <= ρ < 1 || throw(ArgumentError("rho must be in [0, 1)"))
+        validate_epsilon(ε)
+        new{typeof(α)}(α, ρ, ε)
     end
 end
 
@@ -58,8 +58,8 @@ struct AdaBelief{T<:AbstractFloat} <: AbstractOptimizer
     beta2::T
     epsilon::T
     function AdaBelief(; lr::Real=1//1000, beta1::Real=9//10, beta2::Real=999//1000, epsilon::Real=1//100000000)
-        rate, b1, b2, eps = adaptive_settings(lr, beta1, beta2, epsilon)
-        new{typeof(rate)}(rate, b1, b2, eps)
+        α, β₁, β₂, ε = adaptive_settings(lr, beta1, beta2, epsilon)
+        new{typeof(α)}(α, β₁, β₂, ε)
     end
 end
 
@@ -78,10 +78,10 @@ end
 
 function adaptive_settings(lr, beta1, beta2, epsilon, extra...)
     values = optimizer_settings(lr, beta1, beta2, epsilon, extra...)
-    rate, b1, b2, eps = values
-    validate_rate(rate)
-    0 <= b1 < 1 && 0 <= b2 < 1 || throw(ArgumentError("optimizer decays must be in [0, 1)"))
-    validate_epsilon(eps)
+    α, β₁, β₂, ε = values
+    validate_rate(α)
+    0 <= β₁ < 1 && 0 <= β₂ < 1 || throw(ArgumentError("optimizer decays must be in [0, 1)"))
+    validate_epsilon(ε)
     return values
 end
 
@@ -89,56 +89,57 @@ moment_count(optimizer::SGD) = iszero(optimizer.momentum) ? 0 : 1
 moment_count(::RMSProp) = 1
 moment_count(::Union{Adam,AdamW,AdaBelief}) = 2
 
-function update_parameters!(::SGD, weights, gradient, ::Nothing, ::Nothing, rate, iteration)
-    weights .-= eltype(gradient)(rate) .* gradient
+function update_parameters!(::SGD, w, ∇w, ::Nothing, ::Nothing, α, t)
+    w .-= eltype(∇w)(α) .* ∇w
     return
 end
 
-function update_parameters!(optimizer::SGD, weights, gradient, velocity::Array, ::Nothing, rate, iteration)
-    A = eltype(gradient)
-    step, momentum = A(rate), A(optimizer.momentum)
-    @inbounds @simd for i in eachindex(weights, gradient, velocity)
-        v = momentum * velocity[i] + gradient[i]
+function update_parameters!(optimizer::SGD, w, ∇w, velocity::Array, ::Nothing, rate, t)
+    A = eltype(∇w)
+    α, μ = A(rate), A(optimizer.momentum)
+    @inbounds @simd for i in eachindex(w, ∇w, velocity)
+        v = μ * velocity[i] + ∇w[i]
         velocity[i] = v
-        weights[i] -= step * v
+        w[i] -= α * v
     end
     return
 end
 
-function update_parameters!(optimizer::RMSProp, weights, gradient, squares, ::Nothing, rate, iteration)
-    A = eltype(gradient)
-    step, epsilon = A(rate), A(optimizer.epsilon)
-    decay, gain = A(optimizer.rho), A(1 - optimizer.rho)
-    @inbounds @simd for i in eachindex(weights, gradient, squares)
-        g = gradient[i]
-        v = decay * squares[i] + gain * abs2(g)
+function update_parameters!(optimizer::RMSProp, w, ∇w, squares, ::Nothing, rate, t)
+    A = eltype(∇w)
+    α, ε = A(rate), A(optimizer.epsilon)
+    ρ, gain = A(optimizer.rho), A(1 - optimizer.rho)
+    @inbounds @simd for i in eachindex(w, ∇w, squares)
+        g = ∇w[i]
+        v = ρ * squares[i] + gain * abs2(g)
         squares[i] = v
-        weights[i] -= step * g / (sqrt(v) + epsilon)
+        w[i] -= α * g / (sqrt(v) + ε)
     end
     return
 end
 
-weight_scale(::Union{Adam,AdaBelief}, rate, ::Type{A}) where {A} = one(A)
-weight_scale(optimizer::AdamW, rate, ::Type{A}) where {A} = one(A) - A(rate * optimizer.weight_decay)
+weight_scale(::Union{Adam,AdaBelief}, α, ::Type{A}) where {A} = one(A)
+weight_scale(optimizer::AdamW, α, ::Type{A}) where {A} = one(A) - A(α * optimizer.weight_decay)
 
-function update_parameters!(optimizer::Union{Adam,AdamW,AdaBelief}, weights, gradient, first, second, rate, iteration)
-    A = eltype(gradient)
+function update_parameters!(optimizer::Union{Adam,AdamW,AdaBelief}, w, ∇w, first, second, α, t)
+    A = eltype(∇w)
     P = promote_type(A, typeof(optimizer.beta1))
-    b1, b2 = P(optimizer.beta1), P(optimizer.beta2)
-    decay1, decay2 = A(b1), A(b2)
-    gain1, gain2 = A(1 - b1), A(1 - b2)
-    step = A(rate) / A(1 - b1^iteration)
-    correction = A(inv(1 - b2^iteration))
-    epsilon = A(optimizer.epsilon)
-    scale = weight_scale(optimizer, rate, A)
+    β₁, β₂ = P(optimizer.beta1), P(optimizer.beta2)
+    decay₁, decay₂ = A(β₁), A(β₂)
+    gain₁, gain₂ = A(1 - β₁), A(1 - β₂)
+    α̂ = A(α) / A(1 - β₁^t)
+    correction = A(inv(1 - β₂^t))
+    ε = A(optimizer.epsilon)
+    scale = weight_scale(optimizer, α, A)
     belief = optimizer isa AdaBelief
-    @inbounds @simd for i in eachindex(weights, gradient, first, second)
-        g = gradient[i]
-        m = decay1 * first[i] + gain1 * g
+    @inbounds @simd for i in eachindex(w, ∇w, first, second)
+        g = ∇w[i]
+        m = decay₁ * first[i] + gain₁ * g
         deviation = ifelse(belief, g - m, g)
-        v = decay2 * second[i] + gain2 * deviation^2
+        v = decay₂ * second[i] + gain₂ * deviation^2
         first[i], second[i] = m, v
-        weights[i] = scale * weights[i] - step * m / (sqrt(v * correction) + epsilon)
+        v̂ = v * correction
+        w[i] = scale * w[i] - α̂ * m / (sqrt(v̂) + ε)
     end
     return
 end

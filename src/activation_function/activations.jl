@@ -30,7 +30,7 @@ function gelu_derivative(x, c, k)
     return (one(t) + t + x * (one(t) - t^2) * c * (one(x) + 3 * k * x^2)) / 2
 end
 
-gelu_constants(::Type{A}) where {A} = sqrt(A(2) / A(pi)), A(44715//1000000)
+gelu_constants(::Type{A}) where {A} = sqrt(A(2) / A(π)), A(44715//1000000)
 
 function activate_values!(out, ::GELU, x)
     A = accumulation_type(eltype(x))
@@ -53,28 +53,28 @@ function activate_values!(out, ::Softmax, x)
     return out
 end
 
-activation_gradient!(out, ::Identity, x, y, dy) = copyto!(out, dy)
-activation_gradient!(out, ::ReLU, x, y, dy) = (out .= ifelse.(x .> 0, dy, zero(eltype(dy))))
-activation_gradient!(out, ::Tanh, x, y, dy) = (out .= dy .* (1 .- abs2.(y)))
-activation_gradient!(out, ::Sigmoid, x, y, dy) = (out .= dy .* y .* (1 .- y))
+activation_gradient!(∇x, ::Identity, x, y, ∇y) = copyto!(∇x, ∇y)
+activation_gradient!(∇x, ::ReLU, x, y, ∇y) = (∇x .= ifelse.(x .> 0, ∇y, zero(eltype(∇y))))
+activation_gradient!(∇x, ::Tanh, x, y, ∇y) = (∇x .= ∇y .* (1 .- abs2.(y)))
+activation_gradient!(∇x, ::Sigmoid, x, y, ∇y) = (∇x .= ∇y .* y .* (1 .- y))
 
-function activation_gradient!(out, ::GELU, x, y, dy)
+function activation_gradient!(∇x, ::GELU, x, y, ∇y)
     A = accumulation_type(eltype(x))
     c, k = gelu_constants(A)
-    out .= gelu_derivative.(A.(x), c, k) .* A.(dy)
+    ∇x .= gelu_derivative.(A.(x), c, k) .* A.(∇y)
 end
 
-function activation_gradient!(out, ::Softmax, x, y, dy)
+function activation_gradient!(out, ::Softmax, x, y, upstream)
     A = accumulation_type(eltype(y))
     width = size(y, 1)
-    dst, prob, delta = map(a -> reshape(a, width, :), (out, y, dy))
-    @inbounds for column in axes(prob, 2)
+    ∇x, p, ∇p = map(a -> reshape(a, width, :), (out, y, upstream))
+    @inbounds for column in axes(p, 2)
         projection = zero(A)
-        @simd for i in axes(prob, 1)
-            projection += A(prob[i, column]) * A(delta[i, column])
+        @simd for i in axes(p, 1)
+            projection += A(p[i, column]) * A(∇p[i, column])
         end
-        @simd for i in axes(prob, 1)
-            dst[i, column] = prob[i, column] * (delta[i, column] - projection)
+        @simd for i in axes(p, 1)
+            ∇x[i, column] = p[i, column] * (∇p[i, column] - projection)
         end
     end
     return out
