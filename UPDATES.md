@@ -1,5 +1,12 @@
 # Update Log
 
+### Update 0.5.1 - 11.24.2026
+
+- Replaced model builders with configured layers, residual branches, and named graph nodes.
+- Unified training under `TrainingState` and `fit!`. Added `predict` and v2 checkpoints.
+- Added AdamW, RMSProp, and SGD momentum.
+- Restored mathematical notation in handwritten formulas and moved detailed docs to the wiki.
+
 ### Update 0.5.0 - 11.22.2026
 - Raised the minimum Julia version to 1.13 and updated the dependencies. Run `scripts/init_env.sh` to set up the local development environment.
 - Added composable nested networks and the `Graph` API for branching, shared parameters, and multiple inputs and outputs.
