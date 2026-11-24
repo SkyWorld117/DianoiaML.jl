@@ -1,108 +1,85 @@
-module MaxPooling2DM
-    import ..DianoiaML: precision_type
-    using ..DianoiaML: checked_precision
-    import ..DianoiaML: backward!, supports_backward
-    import ..DianoiaML: AbstractLayer, initialize!, activate!, update!, save_layer
-    mutable struct MaxPooling2D{T<:AbstractFloat} <: AbstractLayer
-        input_shape::NTuple{3,Int}
-        output_shape::NTuple{3,Int}
-        pool_size::NTuple{2,Int}
-        strides::NTuple{2,Int}
+struct MaxPooling2D <: AbstractLayer
+    window::NTuple{2,Int}
+    stride::NTuple{2,Int}
+    function MaxPooling2D(window::NTuple{2,Int}; stride::NTuple{2,Int}=window)
+        all(>(0), window) && all(>(0), stride) || throw(ArgumentError("pool window and stride must be positive"))
+        new(window, stride)
+    end
+end
 
-        index::Array{Int,4}
-        output::Array{T,4}
-        δ::Array{T,4}
+function output_shape(layer::MaxPooling2D, input)
+    dims = spatial_shape(input)
+    spatial = ntuple(2) do d
+        dims[d] === nothing && return nothing
+        dims[d] >= layer.window[d] || throw(DimensionMismatch("pool window exceeds input"))
+        return fld(dims[d] - layer.window[d], layer.stride[d]) + 1
+    end
+    return (spatial..., dims[3])
+end
 
-        function MaxPooling2D(;input_shape::Tuple, pool_size::NTuple{2,Int}, strides::NTuple{2,Int}=pool_size, precision::Type{T}=Float32) where {T<:AbstractFloat}
-            checked_precision(T)
-            length(input_shape) == 3 && all(>(0), input_shape) && all(>(0), strides) &&
-                all(d -> 0 < pool_size[d] <= input_shape[d], 1:2) ||
-                throw(ArgumentError("invalid pooling input dimensions, window or strides"))
-            pool_num_per_col = (input_shape[1]-pool_size[1])÷strides[1]+1
-            pool_num_per_row = (input_shape[2]-pool_size[2])÷strides[2]+1
-            output_shape = (pool_num_per_col, pool_num_per_row, input_shape[3])
-            new{T}(input_shape, output_shape, pool_size, strides)
+mutable struct PoolCache
+    indices::Array{Int,4}
+    output::Array{<:AbstractFloat,4}
+    input_gradient::Array{<:AbstractFloat,4}
+    PoolCache() = new()
+end
+
+layer_cache(::MaxPooling2D) = PoolCache()
+
+function forward!(layer::MaxPooling2D, cache::PoolCache, input::Array{T,4}, mode) where {T<:AbstractFloat}
+    if !isdefined(cache, :input_gradient) || size(cache.input_gradient) != size(input) || eltype(cache.input_gradient) !== T
+        dims = (shape(layer, size(input)[1:3])..., size(input, 4))
+        cache.indices = Array{Int}(undef, dims)
+        cache.output = Array{T}(undef, dims)
+        cache.input_gradient = similar(input)
+    end
+    return pool!(layer, input, cache.output, cache.indices)
+end
+
+function pool!(layer, input, output, indices)
+    examples = axes(input, 4)
+    # Pool slices for different examples can be written independently.
+    if Threads.nthreads() > 1 && length(examples) > 1 && length(output) >= 32_768
+        Threads.@threads for example in examples
+            pool_example!(layer, input, output, indices, example)
+        end
+    else
+        for example in examples
+            pool_example!(layer, input, output, indices, example)
         end
     end
+    return output
+end
 
-    precision_type(::MaxPooling2D{T}) where {T} = T
-
-    function initialize!(layer::MaxPooling2D{T}, mini_batch::Int) where {T}
-        isdefined(layer, :output) && size(layer.output, 4) == mini_batch && return
-        layer.index = zeros(Int, layer.output_shape..., mini_batch)
-        layer.output = zeros(T, layer.output_shape..., mini_batch)
-        layer.δ = zeros(T, layer.input_shape..., mini_batch)
-    end
-
-    function activate!(layer::MaxPooling2D{T}, input::Array{T,4}) where {T}
-        size(input) == size(layer.δ) || throw(DimensionMismatch("unexpected pooling input size"))
-        examples = axes(input, 4)
-        # Each example writes to disjoint slices. Small batches avoid task overhead.
-        if Threads.nthreads() > 1 && length(examples) > 1 && length(layer.output) >= 32_768
-            Threads.@threads for example in examples
-                pool_example!(layer, input, example)
-            end
-        else
-            for example in examples
-                pool_example!(layer, input, example)
-            end
-        end
-        return nothing
-    end
-
-    function pool_example!(layer, input, example)
-        sx, sy = layer.strides
-        px, py = layer.pool_size
-        linear = LinearIndices(input)
-        width = size(input, 1)
-        @inbounds for c in axes(layer.output, 3)
-            for j in axes(layer.output, 2), i in axes(layer.output, 1)
-                x, y = (i - 1) * sx + 1, (j - 1) * sy + 1
-                first = linear[x, y, c, example]
-                index = first
-                value = input[first]
-                for row in first:width:first + (py - 1) * width
-                    for k in row:row + px - 1
-                        pixel = input[k]
-                        # Match findmax's ordering and retain the first index on ties.
-                        if isless(value, pixel)
-                            value = pixel
-                            index = k
-                        end
-                    end
-                end
-                layer.output[i, j, c, example] = value
-                layer.index[i, j, c, example] = index
+function pool_example!(layer, input, output, indices, example)
+    sx, sy = layer.stride
+    px, py = layer.window
+    linear = LinearIndices(input)
+    width = size(input, 1)
+    @inbounds for c in axes(output, 3), j in axes(output, 2), i in axes(output, 1)
+        x, y = (i - 1) * sx + 1, (j - 1) * sy + 1
+        first = linear[x, y, c, example]
+        index = first
+        value = input[first]
+        for row in first:width:first + (py - 1) * width, k in row:row + px - 1
+            pixel = input[k]
+            if isless(value, pixel)
+                value, index = pixel, k
             end
         end
+        output[i, j, c, example] = value
+        indices[i, j, c, example] = index
     end
+end
 
-    supports_backward(::MaxPooling2D) = true
+backward!(::MaxPooling2D, cache::PoolCache, input, delta; compute_parameters=true) =
+    pool_gradient!(cache.input_gradient, delta, cache.indices)
 
-    function backward!(layer::MaxPooling2D{T}, input, δₗ₊₁) where {T}
-        fill!(layer.δ, zero(T))
-        # Overlapping windows can select the same input element.
-        for i in eachindex(δₗ₊₁, layer.index)
-            layer.δ[layer.index[i]] += δₗ₊₁[i]
-        end
-        return layer.δ
+function pool_gradient!(dst::Array{T,4}, delta, indices) where {T}
+    fill!(dst, zero(T))
+    # Overlapping windows can select the same element.
+    @inbounds for i in eachindex(delta, indices)
+        dst[indices[i]] += delta[i]
     end
-
-    function update!(layer::MaxPooling2D{T}, optimizer::String, input, delta, α::Real, parameters::Tuple, direction::Int=1) where {T}
-        backward!(layer, input, delta)
-    end
-
-    function save_layer(layer::MaxPooling2D, file, id::String)
-        write(file, id, "MaxPooling2D")
-        write(file, id*"input_shape", collect(layer.input_shape))
-        write(file, id*"pool_size", collect(layer.pool_size))
-        write(file, id*"strides", collect(layer.strides))
-    end
-
-    function get_args(file, id::String)
-        input_shape = tuple(read(file, id*"input_shape")...)
-        pool_size = tuple(read(file, id*"pool_size")...)
-        strides = tuple(read(file, id*"strides")...)
-        return (input_shape=input_shape, pool_size=pool_size, strides=strides)
-    end
+    return dst
 end

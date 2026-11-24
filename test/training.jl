@@ -1,81 +1,65 @@
-mutable struct TrainingProbe
-    initialize::Function
-    update::Function
-    loss::Float64
-end
-
-@testset "Batch coverage and adaptive step counts" begin
+@testset "Batch coverage and optimizer steps" begin
     x = reshape(Float32.(1:5), 1, :)
     y = 2f0 .* x
-    for optimizer in (Adam, AdaBelief, Minibatch_GD, SGD)
-        batches = Vector{Vector{Float32}}()
-        steps = Int[]
-        sizes = Int[]
-        monitor = (func=(actual, target) -> 0.0,)
-        tracker = TrainingProbe((_, size) -> push!(sizes, size),
-            (_, data, targets, loss, monitor, opt, rate, args...) -> begin
-                @test targets == 2f0 .* data
-                push!(batches, vec(copy(data)))
-                isempty(args) || push!(steps, args[1])
-            end, 0.0)
-        options = optimizer === Minibatch_GD ? (batch=3, mini_batch=2) : (batch=2.0,)
-        optimizer.fit(; model=tracker, input_data=x, output_data=y, loss_function=Quadratic_Loss,
-                      monitor, epochs=2, shuffle=false, verbose=false, options...)
-        @test batches == repeat([Float32[1, 2], Float32[3, 4], Float32[5]], 2)
-        @test sizes == [2, 1, 2, 1]
-        @test steps == (optimizer in (Adam, AdaBelief) ? collect(1:6) : Int[])
+    ordered = batches(x, y; batch_size=2, shuffle=false)
+    @test length(ordered) == 3
+    for optimizer in (Adam(), AdaBelief(), SGD())
+        seen = Vector{Float32}[]
+        state = TrainingState(dense_model(1, 1), optimizer)
+        monitor(actual, target) = begin
+            push!(seen, vec(copy(target)))
+            0.0
+        end
+        fit!(state, ordered; loss=QuadraticLoss(), monitor, epochs=2, verbose=false)
+        @test seen == repeat([Float32[2, 4], Float32[6, 8], Float32[10]], 2)
+        @test all(slot -> slot.step == 6, state.slots)
+        @test state.epochs == 2
     end
-
-    model = dense_model(1, 1)
-    for batch in (0, -1, 1.5)
-        @test_throws ArgumentError SGD.fit(; model, input_data=x, output_data=y, loss_function=Quadratic_Loss,
-                                            monitor=Absolute, batch, verbose=false)
+    shuffled = batches((features=x, mask=trues(1, 5)), y; batch_size=2, rng=MersenneTwister(2))
+    @test sort(vcat([vec(copy(input.features)) for (input, target) in shuffled]...)) == vec(x)
+    for (input, target) in shuffled
+        @test target == 2 .* input.features
+        @test all(input.mask)
     end
-    @test_throws DimensionMismatch Adam.fit(; model, input_data=x, output_data=y[:, 1:2],
-                                             loss_function=Quadratic_Loss, monitor=Absolute, verbose=false)
+    for count in (0, -1)
+        @test_throws ArgumentError batches(x, y; batch_size=count)
+    end
+    @test_throws DimensionMismatch batches(x, y[:, 1:2]; batch_size=1)
 end
 
-@testset "SGD batch sizes and legacy entry point" begin
+@testset "SGD batch sizes" begin
     x = ones(Float32, 1, 3)
     y = Float32[1 2 3]
-    options = (input_data=x, output_data=y, loss_function=Quadratic_Loss, monitor=Absolute,
-               epochs=1, α=0.1, shuffle=false, verbose=false)
     for (batch, expected) in ((1, 0.912f0), (2, 0.78f0), (3, 0.4f0), (6, 0.4f0))
         model = dense_model(1, 1)
-        SGD.fit(; model, batch, options...)
-        @test only(model.layers[2].weights) ≈ expected
-        @test only(model.layers[2].biases) ≈ expected
+        state = TrainingState(model, SGD(; lr=0.1))
+        fit!(state, batches(x, y; batch_size=batch, shuffle=false); loss=QuadraticLoss())
+        @test only(model.layers[1].weights) ≈ expected
+        @test only(model.layers[1].bias) ≈ expected
     end
-
-    legacy = dense_model(1, 1)
-    modern = dense_model(1, 1)
-    Minibatch_GD.fit(; model=legacy, batch=3, mini_batch=2, options...)
-    SGD.fit(; model=modern, batch=2, options...)
-    @test legacy.layers[2].weights == modern.layers[2].weights
-    @test legacy.layers[2].biases == modern.layers[2].biases
 end
 
-@testset "Optimizer equations and repeated fits" begin
+@testset "Adaptive optimizer equations and repeated fits" begin
     x = ones(Float32, 1, 1)
     y = 0.7f0 .* x
     for optimizer in (Adam, AdaBelief)
         model = dense_model(1, 1)
-        layer = model.layers[2]
-        w = 0.0
-        α, β₁, β₂, ϵ = 0.05, 0.8, 0.9, 1e-8
+        layer = only(model.layers)
+        w = m = v = 0.0
+        lr, beta1, beta2, epsilon = 0.05, 0.8, 0.9, 1e-8
+        state = TrainingState(model, optimizer(; lr, beta1, beta2, epsilon))
         for run in 1:2
-            m = v = 0.0
-            for t in 1:3
+            for t in (3run-2):3run
                 g = 2 * (2w - only(y))
-                m = β₁ * m + (1 - β₁) * g
+                m = beta1 * m + (1 - beta1) * g
                 residual = optimizer === AdaBelief ? g - m : g
-                v = β₂ * v + (1 - β₂) * residual^2
-                w -= α * (m / (1 - β₁^t)) / (sqrt(v / (1 - β₂^t)) + ϵ)
+                v = beta2 * v + (1 - beta2) * residual^2
+                w -= lr * (m / (1 - beta1^t)) / (sqrt(v / (1 - beta2^t)) + epsilon)
             end
-            optimizer.fit(; model, input_data=x, output_data=y, loss_function=Quadratic_Loss,
-                          monitor=Absolute, epochs=3, batch=1, α, β₁, β₂, ϵ, verbose=false)
+            fit!(state, [(x, y)]; loss=QuadraticLoss(), epochs=3)
             @test only(layer.weights) ≈ w atol=2f-7
-            @test only(layer.biases) ≈ w atol=2f-7
+            @test only(layer.bias) ≈ w atol=2f-7
+            @test state.slots[1].step == 3run
         end
     end
 end
@@ -86,39 +70,35 @@ end
     y = Float32[0.7 -1.2] * x .+ 0.15f0
     for optimizer in (SGD, Adam, AdaBelief)
         model = dense_model(2, 1)
-        optimizer.fit(; model, input_data=x, output_data=y, loss_function=Mean_Squared_Error,
-                      monitor=Absolute, epochs=60, batch=8, α=0.04, rng=MersenneTwister(59), verbose=false)
-        model.initialize(model, size(x, 2))
-        @test Absolute.func(model.activate(model, x), y) / size(x, 2) < 0.015
+        state = TrainingState(model, optimizer(; lr=0.04))
+        fit!(state, batches(x, y; batch_size=8, rng=MersenneTwister(59));
+             loss=MeanSquaredError(), epochs=60)
+        @test Absolute()(predict(model, x), y) / size(x, 2) < 0.015
     end
 
     x = zeros(Float32, 4, 4, 1, 17)
     x[:, 1:2, 1, 1:2:end] .= 1
     x[:, 3:4, 1, 2:2:end] .= 1
     y = oneHot([isodd(i) ? 1 : 2 for i in axes(x, 4)], 2, Dict(1 => 1, 2 => 2))
-    model = Sequential()
-    model.add_layer(model, Conv2D; input_shape=(4, 4, 1), filter=2, kernel_size=(2, 2),
-                    activation_function=ReLU, randomization=false)
-    model.layers[2].filters .= 0.2f0
-    model.add_layer(model, MaxPooling2D; pool_size=(2, 2), strides=(1, 1))
-    model.add_layer(model, Flatten)
-    model.add_layer(model, Dense; layer_size=2, activation_function=Softmax, randomization=false)
-    Adam.fit(; model, input_data=x, output_data=y, loss_function=Categorical_Cross_Entropy_Loss,
-              monitor=Classification, epochs=15, batch=4, α=0.03, rng=MersenneTwister(6), verbose=false)
-    model.initialize(model, size(x, 4))
-    prediction = model.activate(model, x)
-    @test Classification.func(prediction, y) == 0
-    @test sum(Categorical_Cross_Entropy_Loss.func(prediction, y)) / size(x, 4) < 0.10
+    conv = Conv2D(1, 2; kernel_size=(2, 2), activation=ReLU(), randomization=false)
+    conv.filters .= 0.2f0
+    model = Sequential(conv, MaxPooling2D((2, 2); stride=(1, 1)), Flatten(),
+                       Dense(8, 2; randomization=false); input_shape=(4, 4, 1))
+    state = TrainingState(model, Adam(; lr=0.03))
+    loss = CrossEntropyWithLogits()
+    fit!(state, batches(x, y; batch_size=4, rng=MersenneTwister(6)); loss, epochs=15)
+    prediction = predict(model, x)
+    @test Classification()(prediction, y) == 0
+    @test loss(prediction, y) / size(x, 4) < 0.10
 end
 
 @testset "Genetic optimizer with perfect fitness" begin
-    elite, candidate = dense_model(1, 1), dense_model(1, 1)
-    elite.layers[2].weights .= 2f0
-    elite.layers[2].biases .= 1f0
+    elite, candidate = configured_dense(Float32[2;;]), configured_dense(Float32[0;;])
+    elite.bias .= 1
     x = reshape(Float32.(1:5), 1, :)
     y = 2f0 .* x .+ 1f0
-    GA.fit(; models=[elite, candidate], input_data=x, output_data=y, monitor=Absolute,
-           epochs=2, num_copy=1, mini_batch=2, α=0.0, rng=MersenneTwister(17), verbose=false)
-    @test candidate.layers[2].weights == elite.layers[2].weights
-    @test candidate.layers[2].biases == elite.layers[2].biases
+    fit_population!([elite, candidate], batches(x, y; batch_size=2);
+                    monitor=Absolute(), epochs=2, keep=1, mutation=0, rng=MersenneTwister(17), verbose=false)
+    @test candidate.weights == elite.weights
+    @test candidate.bias == elite.bias
 end

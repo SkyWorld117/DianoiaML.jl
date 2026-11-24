@@ -1,105 +1,84 @@
-module GA
-    using Random: default_rng, shuffle!
-    using ..DianoiaML: AbstractLayerStack, Residual, initialize!, activate!,
-                       accumulation_type, random_precision, model_precision, batch_buffer, batch_size_for,
-                       copy_examples!, sample_count
-
-    function fit(;models::Array, input_data::AbstractArray{<:AbstractFloat}, output_data::AbstractArray{<:AbstractFloat}, monitor,
-                 α::Real=0.01, num_copy::Int, epochs::Int=20, batch::Real=32, mini_batch::Union{Int,Nothing}=nothing,
-                 shuffle::Bool=true, rng=default_rng(), verbose::Bool=true)
-        1 <= num_copy <= length(models) || throw(ArgumentError("num_copy must be between 1 and the population size"))
-        length(unique(models)) == length(models) || throw(ArgumentError("each genetic candidate must be a distinct model"))
-        0 <= α <= 1 || throw(ArgumentError("mutation probability must be in [0, 1]"))
-        epochs >= 0 || throw(ArgumentError("epochs must be nonnegative"))
-        examples = sample_count(input_data, output_data)
-        batch_size = batch_size_for(something(mini_batch, batch), examples)
-        steps = cld(examples, batch_size)
-        A = foldl((t, model) -> promote_type(t, model_precision(model)), models; init=Float64)
-        losses = zeros(A, length(models))
-        fitness = zeros(A, num_copy)
-        order = collect(1:examples)
-        x, y = batch_buffer(input_data, batch_size), batch_buffer(output_data, batch_size)
-        tail = rem(examples, batch_size)
-        tail_x, tail_y = tail == 0 ? (x, y) : (batch_buffer(input_data, tail), batch_buffer(output_data, tail))
-        for model in models
-            initialize!(model, batch_size)
-        end
-
-        active_size = batch_size
-        for epoch in 1:epochs
-            loss = zero(A)
-            shuffle && shuffle!(rng, order)
-            for (step, first) in enumerate(1:batch_size:examples)
-                count = min(batch_size, examples - first + 1)
-                if active_size != count
-                    for model in models
-                        initialize!(model, count)
-                    end
-                    active_size = count
-                end
-                current_x, current_y = count == batch_size ? (x, y) : (tail_x, tail_y)
-                copy_examples!(current_x, input_data, order, first)
-                copy_examples!(current_y, output_data, order, first)
-                for i in eachindex(models)
-                    prediction = activate!(models[i], current_x)
-                    losses[i] = monitor.func(prediction, current_y)
-                end
-                rank = sortperm(losses)
-                best = losses[rank[1]]
-                isfinite(best) || throw(ArgumentError("genetic candidates did not produce a finite loss"))
-                loss += best
-                for i in 1:num_copy
-                    fitness[i] = inv(1 + (losses[rank[i]] - best))
-                end
-                total = sum(fitness)
-                strength = (1 - A(step) / (steps + 1))^5
-                for i in num_copy+1:length(rank)
-                    first_parent = models[rank[sample(fitness, total, rng)]]
-                    second_parent = models[rank[sample(fitness, total, rng)]]
-                    recombine!(models[rank[i]], first_parent, second_parent, α, strength, rng)
-                end
-            end
-            verbose && println("Epoch ", epoch, " mean monitor ", loss / examples)
-        end
-        return nothing
-    end
-
-    function sample(weights, total, rng)
-        remaining = rand(rng) * total
-        for i in eachindex(weights)
-            remaining -= weights[i]
-            remaining < 0 && return i
-        end
-        return findlast(>(0), weights)
-    end
-
-    function recombine!(child, parent1, parent2, probability, strength, rng)
-        for i in 2:parent1.num_layer+1
-            dest, a, b = child.layers[i], parent1.layers[i], parent2.layers[i]
-            if dest isa Residual
-                recombine!(dest.resnet, a.resnet, b.resnet, probability, strength, rng)
-            elseif dest isa AbstractLayerStack
-                recombine!(dest, a, b, probability, strength, rng)
-            end
-            for field in (:filters, :weights, :biases)
-                if hasproperty(dest, field)
-                    recombine_array!(getproperty(dest, field), getproperty(a, field), getproperty(b, field), probability, strength, rng)
-                end
-            end
+"""Select and recombine a population of models using a score to minimize."""
+function fit_population!(models, data; monitor, keep::Int, mutation::Real=0.01,
+                         epochs::Int=1, rng=default_rng(), verbose::Bool=true)
+    1 <= keep <= length(models) || throw(ArgumentError("keep must be between one and the population size"))
+    0 <= mutation <= 1 && epochs >= 0 || throw(ArgumentError("invalid mutation rate or epoch count"))
+    arrays = map(parameters, models)
+    names = sort!(collect(keys(first(arrays))))
+    layout = population_bindings(first(arrays), names)
+    independent = unique(layout)
+    seen = Base.IdSet()
+    for values in arrays
+        keys(values) == keys(first(arrays)) || throw(ArgumentError("candidate parameters differ"))
+        population_bindings(values, names) == layout || throw(ArgumentError("candidate parameter ties differ"))
+        for name in independent
+            shape = size(first(arrays)[name])
+            value = values[name]
+            size(value) == shape || throw(DimensionMismatch("candidate parameter shapes differ"))
+            value in seen && throw(ArgumentError("candidates must own distinct parameters"))
+            push!(seen, value)
         end
     end
-
-    function recombine_array!(dest, a, b, probability, strength, rng)
-        T = eltype(dest)
-        A = accumulation_type(T)
-        R = random_precision(A)
-        for i in eachindex(dest, a, b)
-            value = A(a[i]) + A(rand(rng, R)) * (A(b[i]) - A(a[i]))
-            if rand(rng) < probability
-                limit = rand(rng, Bool) ? one(A) : -one(A)
-                value += (limit - value) * (one(A) - A(rand(rng, R))^A(strength))
+    runs = map(execution, models)
+    A = foldl(promote_type, (eltype(value) for value in seen); init=Float64)
+    scores = zeros(A, length(models))
+    fitness = zeros(A, keep)
+    for epoch in 1:epochs
+        count, score = 0, zero(A)
+        for (iteration, (input, target)) in enumerate(data)
+            inputs = cpu_batch(input)
+            for i in eachindex(runs)
+                scores[i] = monitor(execute!(runs[i], inputs), target)
             end
-            dest[i] = value
+            rank = sortperm(scores)
+            best = scores[rank[1]]
+            isfinite(best) || throw(ArgumentError("no candidate produced a finite score"))
+            fitness .= inv.(1 .+ scores[rank[1:keep]] .- best)
+            total = sum(fitness)
+            strength = (1 - A(iteration) / (length(data) + 1))^5
+            for i in keep+1:length(rank)
+                a = arrays[rank[select_candidate(fitness, total, rng)]]
+                b = arrays[rank[select_candidate(fitness, total, rng)]]
+                child = arrays[rank[i]]
+                for name in independent
+                    recombine_array!(child[name], a[name], b[name], mutation, strength, rng)
+                end
+            end
+            count += batch_examples(inputs)
+            score += best
         end
+        count > 0 || throw(ArgumentError("the batch iterator produced no examples"))
+        verbose && println("Epoch ", epoch, " mean monitor ", score / count)
+    end
+    return models
+end
+
+function population_bindings(arrays, names)
+    first_names = IdDict{Any,String}()
+    for name in names
+        get!(first_names, arrays[name], name)
+    end
+    return map(name -> first_names[arrays[name]], names)
+end
+
+function select_candidate(weights, total, rng)
+    remaining = rand(rng) * total
+    for i in eachindex(weights)
+        remaining -= weights[i]
+        remaining < 0 && return i
+    end
+    return findlast(>(0), weights)
+end
+
+function recombine_array!(dest, a, b, probability, strength, rng)
+    A = accumulation_type(eltype(dest))
+    R = random_precision(A)
+    for i in eachindex(dest, a, b)
+        value = A(a[i]) + A(rand(rng, R)) * (A(b[i]) - A(a[i]))
+        if rand(rng) < probability
+            limit = rand(rng, Bool) ? one(A) : -one(A)
+            value += (limit - value) * (one(A) - A(rand(rng, R))^A(strength))
+        end
+        dest[i] = value
     end
 end

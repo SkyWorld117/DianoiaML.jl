@@ -1,82 +1,64 @@
-module UpSampling2DM
-    import ..DianoiaML: precision_type
-    using ..DianoiaML: checked_precision, accumulation_type
-    import ..DianoiaML: backward!, supports_backward
-    import ..DianoiaML: AbstractLayer, initialize!, activate!, update!, save_layer
-    using ..DianoiaML: activation_gradient!
+struct UpSampling2D{F<:AbstractActivation} <: AbstractLayer
+    scale::NTuple{2,Int}
+    activation::F
+    function UpSampling2D(scale::NTuple{2,Int}; activation::F=Identity()) where {F<:AbstractActivation}
+        all(>(0), scale) || throw(ArgumentError("upsampling scale must be positive"))
+        new{F}(scale, activation)
+    end
+end
 
-    mutable struct UpSampling2D{T<:AbstractFloat} <: AbstractLayer
-        input_shape::NTuple{3,Int}
-        output_shape::NTuple{3,Int}
-        size::NTuple{2,Int}
-        activation_function::Module
+function output_shape(layer::UpSampling2D, input)
+    x, y, channels = spatial_shape(input)
+    return (x === nothing ? nothing : x * layer.scale[1],
+            y === nothing ? nothing : y * layer.scale[2], channels)
+end
 
-        value::Array{T,4}
-        output::Array{T,4}
-        ∇biases::Array{T,4}
-        δ::Array{T,4}
+mutable struct UpsamplingCache
+    values::Array
+    output::Array
+    delta::Array
+    input_gradient::Array
+    UpsamplingCache() = new()
+end
 
-        function UpSampling2D(;input_shape::Tuple, size::NTuple{2,Int}, activation_function::Module, precision::Type{T}=Float32) where {T<:AbstractFloat}
-            checked_precision(T)
-            length(input_shape) == 3 && all(>(0), input_shape) && all(>(0), size) ||
-                throw(ArgumentError("invalid upsampling shape or scale"))
-            output_shape = (input_shape[1]*size[1], input_shape[2]*size[2], input_shape[3])
-            new{T}(input_shape, output_shape, size, activation_function)
+layer_cache(::UpSampling2D) = UpsamplingCache()
+
+function forward!(layer::UpSampling2D, cache::UpsamplingCache, input::Array{T,4}, mode) where {T<:AbstractFloat}
+    dims = (shape(layer, size(input)[1:3])..., size(input, 4))
+    if !isdefined(cache, :values) || size(cache.values) != dims || eltype(cache.values) !== T
+        cache.values = Array{T}(undef, dims)
+        cache.output, cache.delta = similar(cache.values), similar(cache.values)
+        cache.input_gradient = similar(input)
+    end
+    upsample!(cache.values, input, layer.scale)
+    return activate_values!(cache.output, layer.activation, cache.values)
+end
+
+function upsample!(output, input, scale)
+    x, y = scale
+    @inbounds for b in axes(input, 4), c in axes(input, 3), j in axes(input, 2), sy in 1:y, i in axes(input, 1)
+        @simd for sx in 1:x
+            output[(i - 1) * x + sx, (j - 1) * y + sy, c, b] = input[i, j, c, b]
         end
     end
+end
 
-    precision_type(::UpSampling2D{T}) where {T} = T
+function backward!(layer::UpSampling2D, cache::UpsamplingCache, input, delta; compute_parameters=true)
+    activation_gradient!(cache.delta, layer.activation, cache.values, cache.output, delta)
+    return upsample_gradient!(cache.input_gradient, cache.delta, layer.scale)
+end
 
-    function initialize!(layer::UpSampling2D{T}, mini_batch::Int) where {T}
-        isdefined(layer, :value) && size(layer.value, 4) == mini_batch && return
-        layer.value = zeros(T, layer.output_shape..., mini_batch)
-        layer.output = zeros(T, layer.output_shape..., mini_batch)
-        layer.∇biases = zeros(T, layer.output_shape..., mini_batch)
-        layer.δ = zeros(T, layer.input_shape..., mini_batch)
-    end
-
-    function activate!(layer::UpSampling2D{T}, input::Array{T,4}) where {T}
-        size(input) == size(layer.δ) || throw(DimensionMismatch("unexpected upsampling input size"))
-        x, y = layer.size
-        @inbounds for b in axes(input, 4), c in axes(input, 3), j in axes(input, 2), sy in 1:y, i in axes(input, 1)
+function upsample_gradient!(dst, delta, scale)
+    A = accumulation_type(eltype(delta))
+    x, y = scale
+    @inbounds for b in axes(dst, 4), c in axes(dst, 3), j in axes(dst, 2), i in axes(dst, 1)
+        total = zero(A)
+        for sy in 1:y
             @simd for sx in 1:x
-                layer.value[(i - 1) * x + sx, (j - 1) * y + sy, c, b] = input[i, j, c, b]
+                total += convert(A, delta[(i - 1) * x + sx, (j - 1) * y + sy, c, b])
             end
         end
-        layer.activation_function.func!(layer.output, layer.value)
+        dst[i, j, c, b] = total
     end
-
-    supports_backward(::UpSampling2D) = true
-
-    function backward!(layer::UpSampling2D{T}, input, δₗ₊₁) where {T}
-        activation_gradient!(layer.∇biases, layer.activation_function, layer.value, δₗ₊₁)
-        x, y = layer.size
-        @inbounds for b in axes(layer.δ, 4), c in axes(layer.δ, 3), j in axes(layer.δ, 2), i in axes(layer.δ, 1)
-            total = zero(accumulation_type(T))
-            for sy in 1:y
-                @simd for sx in 1:x
-                    total += layer.∇biases[(i - 1) * x + sx, (j - 1) * y + sy, c, b]
-                end
-            end
-            layer.δ[i, j, c, b] = total
-        end
-        return layer.δ
-    end
-
-    function update!(layer::UpSampling2D{T}, optimizer::String, input, delta, α::Real, parameters::Tuple, direction::Int=1) where {T}
-        backward!(layer, input, delta)
-    end
-
-    function save_layer(layer::UpSampling2D, file, id::String)
-        write(file, id, "UpSampling2D")
-        write(file, id*"input_shape", collect(layer.input_shape))
-        write(file, id*"size", collect(layer.size))
-        write(file, id*"activation_function", layer.activation_function.get_name())
-    end
-
-    function get_args(file, id::String)
-        input_shape = tuple(read(file, id*"input_shape")...)
-        size = tuple(read(file, id*"size")...)
-        return (input_shape=input_shape, size=size)
-    end
+    return dst
 end

@@ -1,104 +1,51 @@
-using Random: shuffle!
+batch_examples(x::AbstractArray) = size(x, ndims(x))
 
-reset_optimizer!(model) = nothing
-
-function reset_optimizer!(layer::Union{Dense,Conv2D,TConv2D})
-    for state in (layer.Vdw, layer.Sdw, layer.Vdb, layer.Sdb)
-        fill!(state, zero(eltype(state)))
-    end
+function batch_examples(xs::Union{Tuple,NamedTuple})
+    isempty(xs) && throw(ArgumentError("a batch needs at least one array"))
+    count = batch_examples(first(xs))
+    all(x -> batch_examples(x) == count, xs) || throw(DimensionMismatch("batch sample counts differ"))
+    return count
 end
 
-function reset_optimizer!(layer::LayerNorm)
-    for state in (layer.scale_moments..., layer.bias_moments...)
-        fill!(state, zero(eltype(state)))
-    end
+struct Batches{X,Y,R}
+    inputs::X
+    targets::Y
+    batch_size::Int
+    count::Int
+    shuffle::Bool
+    rng::R
 end
 
-reset_optimizer!(model::Union{AbstractLayerStack,GAN,Residual,Attention}) =
-    foreach(reset_optimizer!, layer_children(model))
+"""
+    batches(inputs, [targets]; batch_size, shuffle=true, rng)
 
-function sample_count(input, target)
-    examples = size(input, ndims(input))
-    examples > 0 || throw(ArgumentError("training data must contain at least one example"))
-    examples == size(target, ndims(target)) || throw(DimensionMismatch("input and target sample counts differ"))
-    return examples
+Iterate over views with examples on the last axis. A new iteration reshuffles
+when enabled, and the final batch includes any remaining examples.
+"""
+function batches(inputs, targets=nothing; batch_size::Int, shuffle::Bool=true, rng=default_rng())
+    count = batch_examples(inputs)
+    count > 0 && batch_size > 0 || throw(ArgumentError("batch size and sample count must be positive"))
+    targets === nothing || batch_examples(targets) == count ||
+        throw(DimensionMismatch("inputs and targets have different numbers of examples"))
+    return Batches(inputs, targets, batch_size, count, shuffle, rng)
 end
 
-function batch_size_for(batch, examples)
-    isinteger(batch) && batch > 0 || throw(ArgumentError("batch size must be a positive integer"))
-    return Int(min(batch, examples))
+Base.length(data::Batches) = cld(data.count, data.batch_size)
+Base.IteratorEltype(::Type{<:Batches}) = Base.EltypeUnknown()
+
+select_examples(x::AbstractArray, indices) = selectdim(x, ndims(x), indices)
+select_examples(inputs::Union{Tuple,NamedTuple}, indices) = map(x -> select_examples(x, indices), inputs)
+
+function Base.iterate(data::Batches)
+    order = data.shuffle ? shuffle!(data.rng, collect(1:data.count)) : (1:data.count)
+    return iterate(data, (order, 1))
 end
 
-function batch_buffer(data, batch)
-    return similar(data, size(data)[1:end-1]..., batch)
-end
-
-function copy_examples!(buffer, data, order, first)
-    samples = size(buffer, ndims(buffer))
-    features = length(buffer) ÷ samples
-    for b in 1:samples
-        index = order[first + b - 1]
-        copyto!(buffer, (b - 1) * features + 1, data, (index - 1) * features + 1, features)
-    end
-end
-
-function fit_gradient!(model, input_data, output_data, loss, monitor, optimizer, α, epochs, batch,
-                       adaptive_parameters; shuffle, rng, verbose)
-    examples = sample_count(input_data, output_data)
-    batch_size = batch_size_for(batch, examples)
-    epochs >= 0 || throw(ArgumentError("epochs must be nonnegative"))
-    if !isempty(adaptive_parameters)
-        β₁, β₂, ϵ = adaptive_parameters
-        0 <= β₁ < 1 && 0 <= β₂ < 1 || throw(ArgumentError("optimizer decay rates must be in [0, 1)"))
-        0 < ϵ < Inf || throw(ArgumentError("optimizer epsilon must be positive and finite"))
-    end
-
-    initialize!(model, batch_size)
-    reset_optimizer!(model)
-    hasproperty(model, :loss) && (model.loss = 0.0)
-    state = if supports_backward(model)
-        settings = isempty(adaptive_parameters) ? (; α) :
-            (; α, beta1=adaptive_parameters[1], beta2=adaptive_parameters[2], epsilon=adaptive_parameters[3])
-        state = TrainingState(model, Optimizer(Symbol(optimizer); settings...))
-        state.batch = batch_size
-        state
-    else
-        nothing
-    end
-    order = collect(1:examples)
-    x, y = batch_buffer(input_data, batch_size), batch_buffer(output_data, batch_size)
-    tail = rem(examples, batch_size)
-    tail_x, tail_y = tail == 0 ? (x, y) : (batch_buffer(input_data, tail), batch_buffer(output_data, tail))
-    active_size = batch_size
-    step = 0
-    for epoch in 1:epochs
-        score = 0.0
-        shuffle && shuffle!(rng, order)
-        for first in 1:batch_size:examples
-            count = min(batch_size, examples - first + 1)
-            if state === nothing && active_size != count
-                initialize!(model, count)
-                active_size = count
-            end
-            current_x, current_y = count == batch_size ? (x, y) : (tail_x, tail_y)
-            copy_examples!(current_x, input_data, order, first)
-            copy_examples!(current_y, output_data, order, first)
-            if state === nothing
-                step += 1
-                parameters = isempty(adaptive_parameters) ? () : (step, adaptive_parameters...)
-                update!(model, current_x, current_y, loss, monitor, optimizer, α, parameters...)
-            else
-                prediction = forward!(state, current_x)
-                backward!(state, current_y; loss_function=loss)
-                step!(state)
-                score += monitor.func(prediction, cotangent_as(prediction, current_y))
-            end
-        end
-        if state === nothing
-            score = model.loss
-            model.loss = 0.0
-        end
-        verbose && println("Epoch ", epoch, " mean monitor ", score / examples)
-    end
-    return nothing
+function Base.iterate(data::Batches, (order, start))
+    start > data.count && return nothing
+    finish = start + min(data.batch_size, data.count - start + 1) - 1
+    indices = view(order, start:finish)
+    inputs = select_examples(data.inputs, indices)
+    result = data.targets === nothing ? inputs : (inputs, select_examples(data.targets, indices))
+    return result, (order, finish + 1)
 end

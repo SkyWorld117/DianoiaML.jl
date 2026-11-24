@@ -1,16 +1,19 @@
-module Classification
-    function func(output::AbstractArray{<:AbstractFloat}, target::AbstractArray{<:AbstractFloat})
-        size(output) == size(target) || throw(DimensionMismatch("prediction and target shapes differ"))
-        predictions = reshape(output, size(output, 1), :)
-        labels = reshape(target, size(target, 1), :)
-        errors = 0
-        for b in axes(predictions, 2)
-            if size(predictions, 1) == 1
-                errors += (predictions[1, b] >= 1//2) != (labels[1, b] >= 1//2)
-            else
-                @views errors += argmax(predictions[:, b]) != argmax(labels[:, b])
-            end
+struct Classification{T<:Real}
+    threshold::T
+end
+Classification(; threshold=1//2) = Classification(threshold)
+
+function (monitor::Classification)(output, target)
+    check_loss_shape(output, target)
+    width = size(output, 1)
+    predicted, expected = reshape(output, width, :), reshape(target, width, :)
+    errors = 0
+    for col in axes(predicted, 2)
+        if width == 1
+            errors += (predicted[1, col] >= monitor.threshold) != (expected[1, col] >= 1//2)
+        else
+            @views errors += argmax(predicted[:, col]) != argmax(expected[:, col])
         end
-        return errors
     end
+    return errors
 end
