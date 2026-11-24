@@ -48,8 +48,8 @@ function forward!(layer::LayerNorm{T,A}, cache::LayerNormCache{T,A}, input::Abst
     resize_norm!(cache, size(input))
     gpu_array(input) && return gpu_norm_forward!(layer, cache, input)
     x = reshape(input, width, :)
-    z = reshape(cache.normalized, size(x))
-    y = reshape(cache.output, size(x))
+    z = reshape(cache.normalized::Array{A}, size(x))
+    y = reshape(cache.output::Array{T}, size(x))
     γ, β, ε = layer.scale, layer.bias, layer.epsilon
     count = A(width)
     @inbounds for col in axes(x, 2)
@@ -80,8 +80,8 @@ function backward!(layer::LayerNorm{T,A}, cache::LayerNormCache{T,A}, input, ups
         throw(DimensionMismatch("LayerNorm cotangent shape differs"))
     gpu_array(input) && return gpu_norm_backward!(layer, cache, input, upstream, compute_parameters)
     width = length(layer.scale)
-    ∇x = reshape(cache.input_gradient, width, :)
-    z = reshape(cache.normalized, size(∇x))
+    ∇x = reshape(cache.input_gradient::Array{T}, width, :)
+    z = reshape(cache.normalized::Array{A}, size(∇x))
     ∇y = reshape(upstream, size(∇x))
     γ = layer.scale
     ∇γ, ∇β = cache.scale_gradient, cache.bias_gradient
