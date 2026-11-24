@@ -10,17 +10,15 @@ random_precision(::Type{T}) where {T<:Union{Float32,Float64,BigFloat}} = T
 random_precision(::Type{<:AbstractFloat}) = BigFloat
 
 precision_type(layer) = nothing
-model_precision(layer) = something(precision_type(layer), Float32)
 
 float_input(precision, input) = input
-float_input(::Type{T}, input::Tuple) where {T} = map(x -> float_input(T, x), input)
+float_input(::Type{T}, input::Union{Tuple,NamedTuple}) where {T} = map(x -> float_input(T, x), input)
 float_input(::Type{T}, input::AbstractArray{<:AbstractFloat}) where {T} =
     input isa Array{T} ? input : Array{T}(input)
 
-layer_input(layer, input) = float_input(precision_type(layer), input)
-
 cotangent_as(prediction, delta) = delta
 cotangent_as(prediction::Tuple, delta::Tuple) = map(cotangent_as, prediction, delta)
+cotangent_as(prediction::NamedTuple, delta::NamedTuple) = map(cotangent_as, prediction, delta)
 function cotangent_as(prediction::AbstractArray{T}, delta::AbstractArray) where {T<:AbstractFloat}
     return delta isa Array{T} ? delta : Array{T}(delta)
 end

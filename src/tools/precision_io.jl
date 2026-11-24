@@ -7,15 +7,6 @@ function stored_precision(name)
     throw(ArgumentError("unsupported stored precision $name"))
 end
 
-function write_precision(file, key, model)
-    T = model_precision(model)
-    T === Float32 && return
-    stored_precision(string(T))
-    write(file, key, string(T))
-end
-
-read_precision(file, key) = haskey(file, key) ? stored_precision(read(file, key)) : Float32
-
 write_array(file, key, values) = write(file, key, values)
 write_number(file, key, value::Union{Float16,BFloat16,BigFloat}) = write_array(file, key, [value])
 write_number(file, key, value) = write(file, key, value)

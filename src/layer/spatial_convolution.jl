@@ -42,32 +42,4 @@ function convolve!(fast, generic, dest, left, right, work::Workspace{D,A}; alpha
     return dest
 end
 
-function forward!(layer, input, work::Workspace=layer.workspace)
-    permutedims!(work.kernel, layer.filters, (3, 4, 2, 1))
-    convolve!(conv_im2col!, conv_direct!, layer.value, input, work.kernel, work)
-    layer.value .+= reshape(layer.biases, 1, 1, :, 1)
-    layer.activation_function.func!(layer.output, layer.value)
-end
-
-function backward!(layer, input, input_gradient; compute_parameters=true, work::Workspace=layer.workspace)
-    convolve!(∇conv_data_im2col!, ∇conv_data_direct!, input_gradient, layer.∇biases, work.kernel, work)
-    compute_parameters || return input_gradient
-
-    delta = layer.∇biases
-    batch = size(delta, 4)
-    A = eltype(work.gradient)
-    convolve!(∇conv_filter_im2col!, ∇conv_filter_direct!, work.gradient, input, delta, work;
-              alpha=inv(A(batch)))
-    permutedims!(layer.∇weights, work.gradient, (4, 3, 1, 2))
-    for f in axes(delta, 3)
-        total = zero(A)
-        @inbounds for b in axes(delta, 4), j in axes(delta, 2)
-            @simd for i in axes(delta, 1)
-                total += A(delta[i, j, f, b])
-            end
-        end
-        layer.∇biases_c[f] = total / A(batch)
-    end
-    return input_gradient
-end
 end

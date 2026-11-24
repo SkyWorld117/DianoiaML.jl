@@ -1,69 +1,59 @@
 @testset "CPU precision" begin
-    types = (Float16, BFloat16, Float32, Float64, BigFloat)
-    labels = Dict(1 => 1, 2 => 2)
-
-    for T in types
+    for T in (Float16, BFloat16, Float32, Float64, BigFloat)
         @testset "$T" begin
             A = T in (Float16, BFloat16) ? Float32 : T
-            model = Sequential(; precision=T)
-            add_layer!(model, Dense; input_shape=(2,), layer_size=2,
-                       activation_function=Softmax, randomization=false)
-            layer = model.layers[2]
-            state = TrainingState(model, Optimizer(:Adam; precision=T); seed=42)
+            model = dense_model(2, 2; precision=T)
+            layer = only(model.layers)
+            state = TrainingState(model, Adam(); seed=42)
             input = view(Float64[1 2 4; 2 4 8], :, 1:2)
-            target = oneHot([1, 1], 2, labels; precision=T)
+            target = oneHot([1, 1], 2, Dict(1 => 1, 2 => 2); precision=T)
             prediction = forward!(state, input)
             @test eltype(prediction) === eltype(layer.weights) === eltype(target) === T
-            @test prediction == fill(T(1//2), 2, 2)
-            input_gradient = backward!(state, target; loss_function=Categorical_Cross_Entropy_Loss)
-            @test eltype(input_gradient) === T
-            @test iszero(input_gradient)
-            derivative = gradients(state)["1.weights"]
-            @test eltype(derivative) === A
-            @test derivative == A[-3//4 -3//2; 3//4 3//2]
+            @test iszero(prediction)
+            derivative = backward!(state, target; loss=CrossEntropyWithLogits())
+            @test eltype(derivative) === Float64
+            @test iszero(derivative)
+            grad = gradients(state)["1.weights"]
+            @test eltype(grad) === A
+            @test grad == A[-3//4 -3//2; 3//4 3//2]
             step!(state; clip_norm=1)
             @test eltype(state.slots[1].first) === eltype(state.slots[1].second) === A
-            @test all(isfinite, layer.weights)
-            @test all(>(T(1//2)), forward!(state, input; training=false)[1, :])
+            logits = predict(model, input)
+            @test all(isfinite, logits)
+            @test all(logits[1, :] .> logits[2, :])
 
-            set_group!(state, layer; α=T(1//4))
+            set_group!(state, layer; lr=T(1//4))
             forward!(state, input)
-            backward!(state, target; loss_function=Categorical_Cross_Entropy_Loss)
+            backward!(state, target; loss=CrossEntropyWithLogits())
             mktempdir() do directory
-                path = joinpath(directory, "model.h5")
-                save_Sequential(model, path)
-                loaded = load_Sequential(path)
-                @test eltype(loaded.layers[2].weights) === T
-                @test state_dict(loaded) == state_dict(model)
-                resumed = TrainingState(loaded, Optimizer(:SGD))
-                save_checkpoint(path, state)
+                path = save_checkpoint(joinpath(directory, "model.h5"), state)
+                loaded = dense_model(2, 2; precision=T)
+                resumed = TrainingState(loaded, SGD())
                 load_checkpoint!(resumed, path)
+                @test state_dict(loaded) == state_dict(model)
                 @test gradients(resumed) == gradients(state)
                 @test resumed.slots[1].first == state.slots[1].first
-                @test typeof(resumed.slots[1].α) === typeof(state.slots[1].α)
-                @test resumed.slots[1].α == state.slots[1].α
+                @test typeof(resumed.slots[1].lr) === typeof(state.slots[1].lr)
+                @test resumed.slots[1].lr == state.slots[1].lr
                 step!(resumed)
                 step!(state)
                 @test state_dict(resumed.model) == state_dict(state.model)
             end
 
-            dropout = Sequential(Dropout(input_shape=(8,), rate=1//2, precision=T))
-            drop_state = TrainingState(dropout, Optimizer(:SGD); seed=21)
-            mask_values = forward!(drop_state, ones(8, 8))
+            dropout = TrainingState(Dropout(1//2), SGD(); seed=21)
+            mask_values = forward!(dropout, ones(T, 8, 8))
             @test eltype(mask_values) === T
             @test Set(mask_values) == Set(T[0, 2])
-            @test backward!(drop_state, ones(8, 8)) == mask_values
+            @test backward!(dropout, ones(T, 8, 8)) == mask_values
 
-            projection = Dense(input_shape=(1,), layer_size=1, activation_function=None,
-                               randomization=false, precision=T)
-            projection.weights .= 2
-            graph = Graph(((1,),), Node(projection, 1), Node(share_parameters(projection), 1),
-                          Node(Add((1,); precision=T), 2, 3); precision=T)
-            graph_state = TrainingState(graph, Optimizer(:SGD))
+            projection = configured_dense(fill(T(2), 1, 1))
+            graph = Graph(; inputs=(:x,), nodes=(left=Node(projection, :x), right=Node(projection, :x),
+                                                   sum=Node(Add(), :left, :right)))
+            graph_state = TrainingState(graph, SGD())
             @test forward!(graph_state, ones(1, 2)) == fill(T(4), 1, 2)
-            @test eltype(graph.output) === T
+            @test eltype(graph_state.run.output) === T
             @test backward!(graph_state, ones(1, 2)) == fill(T(4), 1, 2)
-            @test gradients(graph_state)["1.weights"] == fill(A(2), 1, 1)
+            @test gradients(graph_state)["left.weights"] == fill(A(2), 1, 1)
         end
     end
 end
@@ -72,19 +62,17 @@ end
     x = reshape(Float64.(1:8), 2, 2, 1, 2)
     for Layer in (Conv2D, TConv2D)
         function spatial_model(T)
-            model = Sequential(; precision=T)
-            add_layer!(model, Layer; input_shape=(2, 2, 1), filter=1, kernel_size=(2, 2),
-                       padding=1, strides=(2, 1), activation_function=None, randomization=false)
-            model.layers[2].filters .= reshape([1, 2, 3, 4], 1, 1, 2, 2)
-            return model
+            layer = Layer(1, 1; kernel_size=(2, 2), padding=1, stride=(2, 1),
+                          randomization=false, precision=T)
+            layer.filters .= reshape([1, 2, 3, 4], 1, 1, 2, 2)
+            return layer
         end
-        reference = TrainingState(spatial_model(Float64), Optimizer(:SGD))
+        reference = TrainingState(spatial_model(Float64), SGD())
         expected = copy(forward!(reference, x))
         delta = ones(size(expected))
         expected_input = copy(backward!(reference, delta))
         for T in (Float16, BFloat16, Float32, Float64, BigFloat)
-            model = spatial_model(T)
-            state = TrainingState(model, Optimizer(:SGD))
+            state = TrainingState(spatial_model(T), SGD())
             prediction = forward!(state, x)
             @test eltype(prediction) === T
             @test prediction == expected
@@ -94,13 +82,10 @@ end
     end
 
     for T in (Float16, BFloat16, Float64, BigFloat)
-        model = Sequential(; precision=T)
-        add_layer!(model, UpSampling2D; input_shape=(2, 2, 1), size=(2, 2), activation_function=None)
-        add_layer!(model, MaxPooling2D; pool_size=(2, 2))
-        add_layer!(model, Flatten)
-        add_layer!(model, Constructive; shape=(2, 2, 1))
-        state = TrainingState(model, Optimizer(:SGD))
-        prediction = forward!(state, x)
+        model = Sequential(UpSampling2D((2, 2)), MaxPooling2D((2, 2)), Flatten(),
+                           Reshape((2, 2, 1)))
+        state = TrainingState(model, SGD())
+        prediction = forward!(state, T.(x))
         @test eltype(prediction) === T
         @test prediction == x
         derivative = backward!(state, ones(size(x)))
@@ -109,79 +94,58 @@ end
     end
 end
 
-@testset "Nested precision and arbitrary precision round trips" begin
-    @test eltype(dense_model(1, 1).layers[2].weights) === Float32
+@testset "Mixed and arbitrary precision" begin
+    @test eltype(Dense(1, 1).weights) === Float32
     setprecision(BigFloat, 384) do
-        model = Sequential(; precision=BigFloat)
-        branch = ResNet(; precision=BigFloat)
-        add_layer!(branch, Dense; input_shape=(1,), layer_size=1, activation_function=None,
-                   randomization=false)
-        add_layer!(model, Residual(branch))
-        layer = branch.layers[2]
+        layer = Dense(1, 1; precision=BigFloat, randomization=false)
+        model = Sequential(Residual(layer))
         tiny = BigFloat(2)^(-320)
         layer.weights .= 1 + tiny
-        layer.biases .= setprecision(BigFloat, 448) do
+        layer.bias .= setprecision(BigFloat, 448) do
             BigFloat(2)^(-414)
         end
-        state = TrainingState(model, Optimizer(:SGD; α=tiny, precision=BigFloat))
-        @test only(forward!(state, ones(1, 1))) == 2 + tiny
-        @test only(backward!(state, ones(1, 1))) == 2 + tiny
+        state = TrainingState(model, SGD(; lr=tiny))
+        @test only(forward!(state, ones(BigFloat, 1, 1))) == 2 + tiny
+        @test only(backward!(state, ones(BigFloat, 1, 1))) == 2 + tiny
         saved = state_dict(model)
         mktempdir() do directory
             path = joinpath(directory, "big.h5")
             setprecision(BigFloat, 256) do
-                save_Sequential(model, path)
-                loaded = load_Sequential(path)
-                @test state_dict(loaded) == saved
-                @test precision(only(loaded.layers[2].resnet.layers[2].weights)) == 384
-                @test precision(only(loaded.layers[2].resnet.layers[2].biases)) == 448
                 save_checkpoint(path, state)
                 load_checkpoint!(state, path)
                 @test state_dict(model) == saved
-                @test precision(state.optimizer.α) == 384
+                @test precision(only(layer.weights)) == 384
+                @test precision(only(layer.bias)) == 448
+                @test precision(state.optimizer.lr) == 384
             end
         end
     end
 
-    model = Sequential(; precision=Float64)
-    add_layer!(model, Dense; precision=Float32, input_shape=(1,), layer_size=1,
-               activation_function=None, randomization=false)
-    add_layer!(model, Dense; layer_size=1, activation_function=None, randomization=false)
-    @test eltype(model.layers[2].weights) === Float32
-    @test eltype(model.layers[3].weights) === Float64
-    state = TrainingState(model, Optimizer(:SGD))
+    high = configured_dense(Float64[1;;])
+    low = configured_dense(Float32[1;;])
+    x = fill(1.0 + 2.0^-35, 1, 1)
+    @test predict(Sequential(high), x) == x
+    @test predict(Sequential(high, low), x) == Float32[1;;]
+    mixed = Sequential(low, high)
+    state = TrainingState(mixed, SGD())
     @test eltype(forward!(state, ones(Float16, 1, 2))) === Float64
-    @test eltype(backward!(state, ones(1, 2))) === Float64
-    mktempdir() do directory
-        path = joinpath(directory, "mixed.h5")
-        save_Sequential(model, path)
-        loaded = load_Sequential(path)
-        @test eltype(loaded.layers[2].weights) === Float32
-        @test eltype(loaded.layers[3].weights) === Float64
-    end
+    @test eltype(backward!(state, ones(1, 2))) === Float16
 end
 
 @testset "GAN precision" begin
     for T in (Float16, BFloat16, Float64, BigFloat)
-        noise() = ones(1)
-        model = GAN(noise; precision=T)
-        model.add_Glayer(model, Dense; input_shape=(1,), layer_size=1,
-                         activation_function=None, randomization=false)
-        model.add_Dlayer(model, Dense; layer_size=1, activation_function=Sigmoid, randomization=false)
-        model.layers[2].weights .= 1//2
-        model.layers[3].weights .= 1//4
+        noise(rng, n) = ones(T, 1, n)
+        generator = configured_dense(fill(T(1//2), 1, 1))
+        discriminator = configured_dense(fill(T(1//4), 1, 1))
+        gan = GAN(generator, discriminator)
+        state = GANState(gan; noise, generator_optimizer=SGD(; lr=1//10),
+                         discriminator_optimizer=SGD(; lr=1//10))
         input = fill(2.0, 1, 2)
-        SGD.fit(; model, input_data=input, output_data=input, loss_function=Binary_Cross_Entropy_Loss,
-                 monitor=Absolute, α=1//10, batch=2, epochs=1, shuffle=false, verbose=false)
-        @test only(model.layers[2].weights) > T(1//2)
-        @test eltype(model.activate(model)) === T
-        mktempdir() do directory
-            path = joinpath(directory, "gan.h5")
-            save_GAN(model, path)
-            loaded = load_GAN(path, noise)
-            initialize!(loaded, 2)
-            @test eltype(loaded.activate(loaded)) === T
-            @test state_dict(loaded) == state_dict(model)
+        fit!(state, batches(input; batch_size=2))
+        @test only(generator.weights) > T(1//2)
+        @test eltype(generate(gan, input)) === T
+        @test all(values(state_dict(gan))) do array
+            eltype(array) === T && all(isfinite, array)
         end
     end
 end

@@ -3,12 +3,13 @@ using LinearAlgebra: I, dot
 using Random: MersenneTwister, seed!
 using Test
 
-function dense_model(inputs, outputs, activation=None)
-    model = Sequential()
-    model.add_layer(model, Dense; input_shape=(inputs,), layer_size=outputs,
-                    activation_function=activation, randomization=false)
-    return model
+function configured_dense(weights::Matrix{T}, activation=Identity()) where {T<:AbstractFloat}
+    layer = Dense(size(weights, 2), size(weights, 1); activation, precision=T, randomization=false)
+    layer.weights .= weights
+    return layer
 end
+
+dense_model(input, output; precision=Float32) = Sequential(Dense(input, output; precision, randomization=false))
 
 function finite_difference!(objective, array, index; h=1f-3)
     original = array[index]
