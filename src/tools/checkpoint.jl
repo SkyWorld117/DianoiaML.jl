@@ -33,13 +33,25 @@ function load_state!(model, saved)
     return model
 end
 
-settings(optimizer::SGD) = [optimizer.lr]
+settings(opt::SGD) = iszero(opt.momentum) ? [opt.lr] : [opt.lr, opt.momentum]
 settings(opt::Union{Adam,AdaBelief}) = [opt.lr, opt.beta1, opt.beta2, opt.epsilon]
+settings(opt::AdamW) = [opt.lr, opt.beta1, opt.beta2, opt.epsilon, opt.weight_decay]
+settings(opt::RMSProp) = [opt.lr, opt.rho, opt.epsilon]
 
 function read_optimizer(file)
     kind = read(file, "optimizer")
     values = read_array(file, "settings")
-    kind == "SGD" && return SGD(; lr=only(values))
+    if kind == "SGD"
+        length(values) == 1 && return SGD(; lr=only(values))
+        lr, momentum = values
+        return SGD(; lr, momentum)
+    elseif kind == "AdamW"
+        lr, beta1, beta2, epsilon, weight_decay = values
+        return AdamW(; lr, beta1, beta2, epsilon, weight_decay)
+    elseif kind == "RMSProp"
+        lr, rho, epsilon = values
+        return RMSProp(; lr, rho, epsilon)
+    end
     constructor = kind == "Adam" ? Adam : kind == "AdaBelief" ? AdaBelief :
                   throw(ArgumentError("unknown checkpoint optimizer $kind"))
     lr, beta1, beta2, epsilon = values
@@ -70,10 +82,8 @@ function write_training_state(file, state::TrainingState)
         write(group, "trainable", slot.trainable)
         write(group, "step", slot.step)
         write_array(group, "gradient", slot.gradient)
-        if slot.first !== nothing
-            write_array(group, "first", slot.first)
-            write_array(group, "second", slot.second)
-        end
+        slot.first === nothing || write_array(group, "first", slot.first)
+        slot.second === nothing || write_array(group, "second", slot.second)
     end
     links = create_group(file, "aliases")
     for (i, (name, index)) in enumerate(state.aliases)
@@ -141,10 +151,8 @@ function read_training_state(file, state)
         slot.step = read(group, "step")
         slot.step >= 0 || throw(ArgumentError("invalid checkpoint optimizer step"))
         read_slot_array!(slot.gradient, group, "gradient")
-        if slot.first !== nothing
-            read_slot_array!(slot.first, group, "first")
-            read_slot_array!(slot.second, group, "second")
-        end
+        slot.first === nothing || read_slot_array!(slot.first, group, "first")
+        slot.second === nothing || read_slot_array!(slot.second, group, "second")
     end
 
     model = file["model"]
