@@ -1,7 +1,7 @@
 """Normalize the first axis with a learned scale and bias per feature."""
-struct LayerNorm{T<:AbstractFloat,A<:AbstractFloat} <: AbstractLayer
-    scale::Vector{T}
-    bias::Vector{T}
+struct LayerNorm{T<:AbstractFloat,A<:AbstractFloat,V<:AbstractVector{T}} <: AbstractLayer
+    scale::V
+    bias::V
     epsilon::A
 end
 
@@ -19,33 +19,34 @@ input_shape(layer::LayerNorm) = (length(layer.scale), Colon())
 output_shape(layer::LayerNorm, input) = feature_shape(input, length(layer.scale))
 layer_parameters(layer::LayerNorm) = (; scale=layer.scale, bias=layer.bias)
 
-mutable struct LayerNormCache{T,A}
-    scale_gradient::Vector{A}
-    bias_gradient::Vector{A}
-    normalized::Array{A}
-    inverse_std::Vector{A}
-    output::Array{T}
-    input_gradient::Array{T}
-    LayerNormCache{T,A}(scale, bias) where {T,A} = new{T,A}(scale, bias)
+mutable struct LayerNormCache{T,A,V<:AbstractVector{A}}
+    scale_gradient::V
+    bias_gradient::V
+    normalized::AbstractArray{A}
+    inverse_std::V
+    output::AbstractArray{T}
+    input_gradient::AbstractArray{T}
+    LayerNormCache(::Type{T}, scale::V, bias::V) where {T,A,V<:AbstractVector{A}} = new{T,A,V}(scale, bias)
 end
 
 layer_cache(layer::LayerNorm{T,A}) where {T,A} =
-    LayerNormCache{T,A}(similar(layer.scale, A), similar(layer.bias, A))
+    LayerNormCache(T, similar(layer.scale, A), similar(layer.bias, A))
 layer_gradients(::LayerNorm, cache::LayerNormCache) = (; scale=cache.scale_gradient, bias=cache.bias_gradient)
 
 function resize_norm!(cache::LayerNormCache{T,A}, dims) where {T,A}
     isdefined(cache, :output) && size(cache.output) == dims && return
-    cache.normalized = Array{A}(undef, dims)
-    cache.inverse_std = Vector{A}(undef, prod(Base.tail(dims)))
-    cache.output = Array{T}(undef, dims)
+    cache.normalized = similar(cache.scale_gradient, A, dims)
+    cache.inverse_std = similar(cache.scale_gradient, A, (prod(Base.tail(dims)),))
+    cache.output = similar(cache.scale_gradient, T, dims)
     cache.input_gradient = similar(cache.output)
     return
 end
 
-function forward!(layer::LayerNorm{T,A}, cache::LayerNormCache{T,A}, input::Array{T}, mode) where {T,A}
+function forward!(layer::LayerNorm{T,A}, cache::LayerNormCache{T,A}, input::AbstractArray{T}, mode) where {T,A}
     width = length(layer.scale)
     size(input, 1) == width || throw(DimensionMismatch("LayerNorm feature count differs"))
     resize_norm!(cache, size(input))
+    gpu_array(input) && return gpu_norm_forward!(layer, cache, input)
     x = reshape(input, width, :)
     z = reshape(cache.normalized, size(x))
     y = reshape(cache.output, size(x))
@@ -77,6 +78,7 @@ end
 function backward!(layer::LayerNorm{T,A}, cache::LayerNormCache{T,A}, input, upstream; compute_parameters=true) where {T,A}
     size(upstream) == size(input) == size(cache.output) ||
         throw(DimensionMismatch("LayerNorm cotangent shape differs"))
+    gpu_array(input) && return gpu_norm_backward!(layer, cache, input, upstream, compute_parameters)
     width = length(layer.scale)
     ∇x = reshape(cache.input_gradient, width, :)
     z = reshape(cache.normalized, size(∇x))

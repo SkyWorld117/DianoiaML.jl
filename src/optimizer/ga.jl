@@ -26,9 +26,9 @@ function fit_population!(models, data; monitor, keep::Int, mutation::Real=0.01,
     for epoch in 1:epochs
         count, score = 0, zero(A)
         for (iteration, (input, target)) in enumerate(data)
-            inputs = cpu_batch(input)
             for i in eachindex(runs)
-                scores[i] = monitor(execute!(runs[i], inputs), target)
+                backend = execution_device(parameter_reference(models[i]), input)
+                scores[i] = monitor(execute!(runs[i], batch_on(backend, input)), target)
             end
             rank = sortperm(scores)
             best = scores[rank[1]]
@@ -44,7 +44,7 @@ function fit_population!(models, data; monitor, keep::Int, mutation::Real=0.01,
                     recombine_array!(child[name], a[name], b[name], mutation, strength, rng)
                 end
             end
-            count += batch_examples(inputs)
+            count += batch_examples(input)
             score += best
         end
         count > 0 || throw(ArgumentError("the batch iterator produced no examples"))
@@ -73,6 +73,7 @@ end
 function recombine_array!(dest, a, b, probability, strength, rng)
     A = accumulation_type(eltype(dest))
     R = random_precision(A)
+    gpu_array(dest) && return launch!(recombine_gpu!, dest, a, b, A(probability), A(strength), rand(rng, UInt64))
     for i in eachindex(dest, a, b)
         value = A(a[i]) + A(rand(rng, R)) * (A(b[i]) - A(a[i]))
         if rand(rng) < probability

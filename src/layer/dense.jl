@@ -1,7 +1,7 @@
 """A learned projection on the first axis of a tensor."""
-struct Dense{T<:AbstractFloat,F<:AbstractActivation} <: AbstractLayer
-    weights::Matrix{T}
-    bias::Vector{T}
+struct Dense{T<:AbstractFloat,F<:AbstractActivation,W<:AbstractMatrix{T},B<:AbstractVector{T}} <: AbstractLayer
+    weights::W
+    bias::B
     activation::F
 end
 
@@ -18,23 +18,25 @@ input_shape(layer::Dense) = (size(layer.weights, 2), Colon())
 output_shape(layer::Dense, input) = feature_shape(input, size(layer.weights, 1))
 layer_parameters(layer::Dense) = (; weights=layer.weights, bias=layer.bias)
 
-mutable struct DenseCache{T,A}
-    weights::Matrix{A}
-    bias::Vector{A}
-    values::Matrix{T}
-    delta::Matrix{T}
-    output::Array{T}
-    input_gradient::Array{T}
-    DenseCache{T,A}(weights, bias) where {T,A} = new{T,A}(weights, bias)
+mutable struct DenseCache{T,A,W<:AbstractMatrix{A},B<:AbstractVector{A},V<:AbstractMatrix{T}}
+    weights::W
+    bias::B
+    values::V
+    delta::V
+    output::AbstractArray{T}
+    input_gradient::AbstractArray{T}
+    DenseCache(w::W, b::B, ::Type{V}) where {T,A,W<:AbstractMatrix{A},B<:AbstractVector{A},V<:AbstractMatrix{T}} =
+        new{T,A,W,B,V}(w, b)
 end
 
 function layer_cache(layer::Dense{T}) where {T}
     A = accumulation_type(T)
-    return DenseCache{T,A}(similar(layer.weights, A), similar(layer.bias, A))
+    return DenseCache(similar(layer.weights, A), similar(layer.bias, A), typeof(layer.weights))
 end
 layer_gradients(::Dense, cache::DenseCache) = (; weights=cache.weights, bias=cache.bias)
 
 function multiply!(dest, left, right, ::Type{A}, α=one(A)) where {A}
+    gpu_array(dest) && return gpu_multiply!(dest, left, right, A, α)
     x = eltype(left) === A ? left : A.(left)
     y = eltype(right) === A ? right : A.(right)
     result = eltype(dest) === A ? dest : similar(dest, A)
@@ -43,14 +45,14 @@ function multiply!(dest, left, right, ::Type{A}, α=one(A)) where {A}
     return dest
 end
 
-function forward!(layer::Dense{T}, cache::DenseCache{T,A}, input::Array{T}, mode) where {T,A}
+function forward!(layer::Dense{T}, cache::DenseCache{T,A}, input::AbstractArray{T}, mode) where {T,A}
     ndims(input) >= 2 && size(input, 1) == size(layer.weights, 2) ||
         throw(DimensionMismatch("Dense expects $(size(layer.weights, 2)) features on the first axis"))
     if !isdefined(cache, :input_gradient) || size(cache.input_gradient) != size(input)
         dims = (size(layer.weights, 1), Base.tail(size(input))...)
-        cache.values = Matrix{T}(undef, first(dims), prod(Base.tail(dims)))
+        cache.values = similar(layer.weights, T, (first(dims), prod(Base.tail(dims))))
         cache.delta = similar(cache.values)
-        cache.output = Array{T}(undef, dims)
+        cache.output = similar(input, T, dims)
         cache.input_gradient = similar(input)
     end
     z = cache.values
@@ -71,6 +73,10 @@ function backward!(layer::Dense{T}, cache::DenseCache{T,A}, input, ∇y; compute
         batch = A(size(input, ndims(input)))
         ∇W, ∇b = cache.weights, cache.bias
         multiply!(∇W, δ, transpose(reshape(input, width, :)), A, inv(batch))
+        if gpu_array(∇b)
+            column_sum!(∇b, δ, batch)
+            return cache.input_gradient
+        end
         fill!(∇b, zero(A))
         for b in axes(δ, 2)
             @inbounds @simd for i in axes(δ, 1)

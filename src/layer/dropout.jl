@@ -10,9 +10,9 @@ output_shape(::Dropout, input) = input
 
 mutable struct DropoutCache
     active::Bool
-    samples::Array
-    output::Array
-    gradient::Array
+    samples::AbstractArray
+    output::AbstractArray
+    gradient::AbstractArray
     DropoutCache() = new(false)
 end
 
@@ -21,12 +21,17 @@ layer_cache(::Dropout) = DropoutCache()
 function forward!(layer::Dropout, cache::DropoutCache, input, mode)
     cache.active = mode isa TrainingMode && !iszero(layer.rate)
     cache.active || return input
-    if !isdefined(cache, :output) || size(cache.output) != size(input) || eltype(cache.output) !== eltype(input)
+    if !isdefined(cache, :output) || size(cache.output) != size(input) ||
+       eltype(cache.output) !== eltype(input) || !same_device(cache.output, input)
         cache.output, cache.gradient = similar(input), similar(input)
         A = accumulation_type(eltype(input))
         cache.samples = similar(input, random_precision(A))
     end
-    rand!(mode.rng, cache.samples)
+    if gpu_array(input)
+        launch!(random_uniform_gpu!, cache.samples, rand(mode.rng, UInt64))
+    else
+        rand!(mode.rng, cache.samples)
+    end
     return apply_dropout!(cache.output, layer, cache.samples, input)
 end
 

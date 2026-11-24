@@ -14,23 +14,28 @@ function output_shape(layer::UpSampling2D, input)
 end
 
 mutable struct UpsamplingCache
-    values::Array
-    output::Array
-    delta::Array
-    input_gradient::Array
+    values::AbstractArray
+    output::AbstractArray
+    delta::AbstractArray
+    input_gradient::AbstractArray
     UpsamplingCache() = new()
 end
 
 layer_cache(::UpSampling2D) = UpsamplingCache()
 
-function forward!(layer::UpSampling2D, cache::UpsamplingCache, input::Array{T,4}, mode) where {T<:AbstractFloat}
+function forward!(layer::UpSampling2D, cache::UpsamplingCache, input::AbstractArray{T,4}, mode) where {T<:AbstractFloat}
     dims = (shape(layer, size(input)[1:3])..., size(input, 4))
-    if !isdefined(cache, :values) || size(cache.values) != dims || eltype(cache.values) !== T
-        cache.values = Array{T}(undef, dims)
+    if !isdefined(cache, :values) || size(cache.values) != dims ||
+       eltype(cache.values) !== T || !same_device(cache.values, input)
+        cache.values = similar(input, T, dims)
         cache.output, cache.delta = similar(cache.values), similar(cache.values)
         cache.input_gradient = similar(input)
     end
-    upsample!(cache.values, input, layer.scale)
+    if gpu_array(input)
+        launch!(upsample_gpu!, cache.values, input, layer.scale; ndrange=size(cache.values))
+    else
+        upsample!(cache.values, input, layer.scale)
+    end
     return activate_values!(cache.output, layer.activation, cache.values)
 end
 
@@ -45,6 +50,8 @@ end
 
 function backward!(layer::UpSampling2D, cache::UpsamplingCache, input, ∇y; compute_parameters=true)
     activation_gradient!(cache.delta, layer.activation, cache.values, cache.output, ∇y)
+    gpu_array(input) && return launch!(upsample_backward_gpu!, cache.input_gradient, cache.delta, layer.scale;
+                                      ndrange=size(cache.input_gradient))
     return upsample_gradient!(cache.input_gradient, cache.delta, layer.scale)
 end
 

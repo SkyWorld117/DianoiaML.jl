@@ -13,14 +13,19 @@ precision_type(layer) = nothing
 
 float_input(precision, input) = input
 float_input(::Type{T}, input::Union{Tuple,NamedTuple}) where {T} = map(x -> float_input(T, x), input)
-float_input(::Type{T}, input::AbstractArray{<:AbstractFloat}) where {T} =
-    input isa Array{T} ? input : Array{T}(input)
+function float_input(::Type{T}, input::AbstractArray{<:AbstractFloat}) where {T}
+    if gpu_array(input)
+        isbitstype(T) || throw(ArgumentError("GPU storage requires an isbits precision"))
+        return eltype(input) === T ? input : T.(input)
+    end
+    return input isa Array{T} ? input : Array{T}(input)
+end
 
 cotangent_as(prediction, delta) = delta
 cotangent_as(prediction::Tuple, delta::Tuple) = map(cotangent_as, prediction, delta)
 cotangent_as(prediction::NamedTuple, delta::NamedTuple) = map(cotangent_as, prediction, delta)
 function cotangent_as(prediction::AbstractArray{T}, delta::AbstractArray) where {T<:AbstractFloat}
-    return delta isa Array{T} ? delta : Array{T}(delta)
+    return float_input(T, batch_on(device_of(prediction), delta))
 end
 
 function probability_floor(::Type{T}) where {T<:AbstractFloat}

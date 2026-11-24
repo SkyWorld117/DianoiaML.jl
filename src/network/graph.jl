@@ -167,7 +167,8 @@ function forward!(::Add, cache::ActivationCache, inputs::Tuple, mode)
     length(inputs) >= 2 && all(x -> size(x) == size(first(inputs)), inputs) ||
         throw(DimensionMismatch("Add requires at least two equally shaped inputs"))
     T = promote_type(map(eltype, inputs)...)
-    if !isdefined(cache, :output) || size(cache.output) != size(first(inputs)) || eltype(cache.output) !== T
+    if !isdefined(cache, :output) || size(cache.output) != size(first(inputs)) ||
+       eltype(cache.output) !== T || !same_device(cache.output, first(inputs))
         cache.output = similar(first(inputs), T)
     end
     copyto!(cache.output, first(inputs))

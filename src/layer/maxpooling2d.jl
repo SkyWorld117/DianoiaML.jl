@@ -18,21 +18,23 @@ function output_shape(layer::MaxPooling2D, input)
 end
 
 mutable struct PoolCache
-    indices::Array{Int,4}
-    output::Array{<:AbstractFloat,4}
-    input_gradient::Array{<:AbstractFloat,4}
+    indices::AbstractArray{Int,4}
+    output::AbstractArray{<:AbstractFloat,4}
+    input_gradient::AbstractArray{<:AbstractFloat,4}
     PoolCache() = new()
 end
 
 layer_cache(::MaxPooling2D) = PoolCache()
 
-function forward!(layer::MaxPooling2D, cache::PoolCache, input::Array{T,4}, mode) where {T<:AbstractFloat}
-    if !isdefined(cache, :input_gradient) || size(cache.input_gradient) != size(input) || eltype(cache.input_gradient) !== T
+function forward!(layer::MaxPooling2D, cache::PoolCache, input::AbstractArray{T,4}, mode) where {T<:AbstractFloat}
+    if !isdefined(cache, :input_gradient) || size(cache.input_gradient) != size(input) ||
+       eltype(cache.input_gradient) !== T || !same_device(cache.input_gradient, input)
         dims = (shape(layer, size(input)[1:3])..., size(input, 4))
-        cache.indices = Array{Int}(undef, dims)
-        cache.output = Array{T}(undef, dims)
+        cache.indices = similar(input, Int, dims)
+        cache.output = similar(input, T, dims)
         cache.input_gradient = similar(input)
     end
+    gpu_array(input) && return gpu_pool_forward!(layer, cache, input)
     return pool!(layer, input, cache.output, cache.indices)
 end
 
@@ -72,8 +74,8 @@ function pool_example!(layer, input, output, indices, example)
     end
 end
 
-backward!(::MaxPooling2D, cache::PoolCache, input, ∇y; compute_parameters=true) =
-    pool_gradient!(cache.input_gradient, ∇y, cache.indices)
+backward!(layer::MaxPooling2D, cache::PoolCache, input, ∇y; compute_parameters=true) =
+    gpu_array(input) ? gpu_pool_backward!(layer, cache, ∇y) : pool_gradient!(cache.input_gradient, ∇y, cache.indices)
 
 function pool_gradient!(∇x::Array{T,4}, ∇y, indices) where {T}
     fill!(∇x, zero(T))

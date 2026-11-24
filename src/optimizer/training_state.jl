@@ -1,4 +1,4 @@
-mutable struct ParameterState{A<:Array{<:AbstractFloat},G<:Array{<:AbstractFloat}}
+mutable struct ParameterState{A<:AbstractArray{<:AbstractFloat},G<:AbstractArray{<:AbstractFloat}}
     value::A
     gradient::G
     first::Union{Nothing,G}
@@ -9,7 +9,7 @@ mutable struct ParameterState{A<:Array{<:AbstractFloat},G<:Array{<:AbstractFloat
 end
 
 function ParameterState(value, optimizer)
-    gradient = zeros(accumulation_type(eltype(value)), size(value))
+    gradient = zeros_like(value, accumulation_type(eltype(value)), size(value))
     count = moment_count(optimizer)
     first = count >= 1 ? zero(gradient) : nothing
     second = count >= 2 ? zero(gradient) : nothing
@@ -29,7 +29,7 @@ mutable struct TrainingState{M,E}
     slots::Vector{ParameterState}
     names::Vector{String}
     index::IdDict{Any,Int}
-    sources::Vector{Tuple{Int,Array{<:AbstractFloat}}}
+    sources::Vector{Tuple{Int,AbstractArray{<:AbstractFloat}}}
     aliases::Vector{Tuple{String,Int}}
     seed::UInt64
     forwards::UInt64
@@ -46,7 +46,7 @@ function TrainingState(model::AbstractLayer, optimizer::AbstractOptimizer;
     slots = ParameterState[]
     names = String[]
     index = IdDict{Any,Int}()
-    sources = Tuple{Int,Array{<:AbstractFloat}}[]
+    sources = Tuple{Int,AbstractArray{<:AbstractFloat}}[]
     aliases = Tuple{String,Int}[]
     buffers = Base.IdSet()
     walk_executions(run) do node, prefix
@@ -76,7 +76,7 @@ end
 function set_group!(state::TrainingState, group; lr=nothing, trainable::Union{Bool,Nothing}=nothing)
     lr === nothing || validate_rate(lr)
     !state.pending && state.samples == 0 || throw(ArgumentError("finish the current update before changing groups"))
-    values_to_update = group isa Array ? (group,) : values(parameters(group))
+    values_to_update = group isa AbstractArray ? (group,) : values(parameters(group))
     indices = unique([state.index[value] for value in values_to_update])
     for i in indices
         slot = state.slots[i]
@@ -89,7 +89,8 @@ end
 """Run a training forward pass and retain data for one backward call."""
 function forward!(state::TrainingState, input)
     state.pending && throw(ArgumentError("complete backward! before another training forward"))
-    data = cpu_batch(input)
+    reference = isempty(state.slots) ? nothing : first(state.slots).value
+    data = batch_on(execution_device(reference, input), input)
     count = batch_examples(data)
     count > 0 || throw(ArgumentError("a batch needs at least one example"))
     seed = (UInt128(state.seed) << 64) | UInt128(state.forwards)
@@ -112,7 +113,7 @@ function check_cotangent(prediction, delta::Union{Tuple,NamedTuple})
 end
 
 complete_cotangent(prediction, ::Nothing) = zero_cotangent(prediction)
-complete_cotangent(prediction, delta) = cpu_batch(delta)
+complete_cotangent(prediction, delta) = batch_on(device_of(prediction), delta)
 complete_cotangent(prediction::Tuple, delta::Tuple) = map(complete_cotangent, prediction, delta)
 complete_cotangent(prediction::NamedTuple, delta::NamedTuple) = map(complete_cotangent, prediction, delta)
 
@@ -130,7 +131,8 @@ end
 function backpropagate!(state, upstream, loss; accumulate)
     state.pending || throw(ArgumentError("call forward! before backward!"))
     output = state.run.output
-    delta = loss === nothing ? upstream : loss_gradient!(similar(output), loss, output, upstream)
+    delta = loss === nothing ? upstream :
+            loss_gradient!(similar(output), loss, output, batch_on(device_of(output), upstream))
     check_cotangent(output, delta)
     state.pending = false
     derivative = differentiate!(state.run, complete_cotangent(output, delta); compute_parameters=accumulate)
@@ -165,7 +167,7 @@ function step!(state::TrainingState; clip_norm=nothing)
     if clip_norm !== nothing
         0 < clip_norm < Inf || throw(ArgumentError("clip_norm must be positive and finite"))
         N = foldl((t, slot) -> promote_type(t, eltype(slot.gradient)), state.slots; init=Float64)
-        norm2 = sum(slot -> slot.trainable ? sum(x -> abs2(N(x)), slot.gradient) : zero(N),
+        norm2 = sum(slot -> slot.trainable ? sum_map(SquaredMagnitude{N}(), slot.gradient, zero(N)) : zero(N),
                     state.slots; init=zero(N))
         norm = sqrt(norm2) * scale
         norm > clip_norm && (scale *= clip_norm / norm)
