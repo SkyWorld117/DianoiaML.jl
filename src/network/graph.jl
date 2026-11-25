@@ -111,7 +111,7 @@ function forward!(graph::Graph, run::Execution, input, mode)
 end
 
 copy_cotangent(::Nothing) = nothing
-copy_cotangent(value::AbstractArray) = copy(value)
+copy_cotangent(value::AbstractArray) = recording_writes(value) ? copy_tensor!(similar(value), value) : copy(value)
 copy_cotangent(value::Union{Tuple,NamedTuple}) = map(copy_cotangent, value)
 
 merge_cotangents(::Nothing, ::Nothing) = nothing
@@ -121,10 +121,10 @@ merge_cotangents(current::Tuple, value::Tuple) = map(merge_cotangents, current, 
 merge_cotangents(current::NamedTuple, value::NamedTuple) = map(merge_cotangents, current, value)
 function merge_cotangents(current::AbstractArray, value::AbstractArray)
     size(current) == size(value) || throw(DimensionMismatch("graph cotangent shapes differ"))
-    return current .+= value
+    return broadcast_tensor!(+, current, current, value)
 end
 
-zero_cotangent(value::AbstractArray) = zero(value)
+zero_cotangent(value::AbstractArray) = recording_writes(value) ? zeros_like(value, eltype(value), size(value)) : zero(value)
 zero_cotangent(value::Union{Tuple,NamedTuple}) = map(zero_cotangent, value)
 
 function graph_cotangent!(cache, i, value, offset)
@@ -132,7 +132,7 @@ function graph_cotangent!(cache, i, value, offset)
     if i > offset && current === nothing && value isa AbstractArray
         buffer = cache.scratch[i]
         matching_buffer(buffer, value) || (buffer = cache.scratch[i] = similar(value))
-        cache.gradients[i] = copyto!(buffer, value)
+        cache.gradients[i] = copy_tensor!(buffer, value)
     else
         cache.gradients[i] = merge_cotangents(current, value)
     end
@@ -185,9 +185,9 @@ function forward!(::Add, cache::ActivationCache, inputs::Tuple, mode)
        eltype(cache.output) !== T || !same_device(cache.output, first(inputs))
         cache.output = similar(first(inputs), T)
     end
-    copyto!(cache.output, first(inputs))
+    copy_tensor!(cache.output, first(inputs))
     for input in Base.tail(inputs)
-        cache.output .+= input
+        broadcast_tensor!(+, cache.output, cache.output, input)
     end
     return cache.output
 end

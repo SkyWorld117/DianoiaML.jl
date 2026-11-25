@@ -130,9 +130,9 @@ function gpu_attention_backward!(layer::Attention{T,A}, run, input, ∇y, comput
     ∇k = differentiate!(run.children.key, work.key_gradient; compute_parameters)
     ∇v = differentiate!(run.children.value, work.value_gradient; compute_parameters)
     if layer.cross_attention
-        ∇k .+= ∇v
+        broadcast_tensor!(+, ∇k, ∇k, ∇v)
         return length(input) == 3 ? (∇q, ∇k, nothing) : (∇q, ∇k)
     end
-    ∇q .= A.(∇q) .+ A.(∇k) .+ A.(∇v)
+    broadcast_tensor!((q, k, v) -> A(q) + A(k) + A(v), ∇q, ∇q, ∇k, ∇v)
     return input isa Tuple ? (∇q, nothing) : ∇q
 end

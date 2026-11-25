@@ -44,7 +44,7 @@ function forward!(layer::Concatenate, cache::ActivationCache, inputs::Tuple, mod
         cache.output = similar(source, T, dims)
     end
     for (input, indices) in zip(inputs, concatenation_ranges(layer, inputs))
-        selectdim(cache.output, layer.dims, indices) .= input
+        broadcast_tensor!(identity, selectdim(cache.output, layer.dims, indices), input)
     end
     return cache.output
 end
@@ -62,7 +62,7 @@ function forward!(::Subtract, cache::ActivationCache, inputs::Tuple{AbstractArra
     return sum_tensors!(cache, :output, inputs..., -)
 end
 
-backward!(::Subtract, ::ActivationCache, inputs, ∇y; compute_parameters=true) = (∇y, .-∇y)
+backward!(::Subtract, ::ActivationCache, inputs, ∇y; compute_parameters=true) = (∇y, map_tensor(-, ∇y, eltype(∇y)))
 
 """Permute the axes of each example while keeping the batch axis last."""
 struct Permute{N} <: AbstractLayer
@@ -88,7 +88,9 @@ function permute_examples!(cache, field, input, order)
        eltype(getfield(cache, field)) !== eltype(input) || !same_device(getfield(cache, field), input)
         setfield!(cache, field, similar(input, dims))
     end
-    return permutedims!(getfield(cache, field), input, axes_order)
+    output = getfield(cache, field)
+    recording_writes(output) && return copy_tensor!(output, PermutedDimsArray(input, axes_order))
+    return permutedims!(output, input, axes_order)
 end
 
 forward!(layer::Permute, cache::ActivationCache, input, mode) =

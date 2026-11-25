@@ -3,9 +3,6 @@ using Metal.ObjectiveC.Foundation: NSError, NSRange, NSUInteger
 
 const MTL = Metal.MTL
 
-DianoiaML.backend_replayable(::MetalBackend, model, example, loss) =
-    DianoiaML.recordable_workload(model, example, loss)
-
 DianoiaML.replay_warmups(::MetalBackend) = 1
 
 struct IndirectArguments

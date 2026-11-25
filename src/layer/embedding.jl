@@ -76,17 +76,17 @@ function forward!(layer::PositionalEmbedding{T}, cache::EmbeddingCache, input::A
         cache.output = similar(input)
     end
     positions = view(layer.weights, :, 1:size(input, 2))
-    return cache.output .= input .+ positions
+    return broadcast_tensor!(+, cache.output, input, positions)
 end
 
 function backward!(::PositionalEmbedding, cache::EmbeddingCache, input, ∇y; compute_parameters=true)
     if compute_parameters
         A = eltype(cache.gradient)
-        fill!(cache.gradient, zero(A))
+        fill_tensor!(cache.gradient, zero(A))
         tokens = size(input, 2)
         positions = view(cache.gradient, :, 1:tokens)
         reduce_sum!(A, positions, ∇y)
-        positions ./= A(size(input, 3))
+        broadcast_tensor!(/, positions, positions, A(size(input, 3)))
     end
     return ∇y
 end

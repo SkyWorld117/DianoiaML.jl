@@ -20,7 +20,7 @@ function float_input(::Type{T}, input::AbstractArray{<:AbstractFloat}) where {T}
     backend = device_of(input)
     if backend !== nothing
         check_gpu_precision(backend, T)
-        return eltype(input) === T ? input : T.(input)
+        return eltype(input) === T ? input : map_tensor(ConvertTo{T}(), input, T)
     end
     return input isa Array{T} ? input : Array{T}(input)
 end

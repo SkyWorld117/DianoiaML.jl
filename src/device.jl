@@ -65,14 +65,14 @@ batch_on(::Nothing, array::Array) = array
 batch_on(::Nothing, array::AbstractArray) = Array(array)
 batch_on(backend, values::Union{Tuple,NamedTuple}) = map(x -> batch_on(backend, x), values)
 
-zeros_like(array, ::Type{T}, dims::Tuple) where {T} = fill!(similar(array, T, dims), zero(T))
+zeros_like(array, ::Type{T}, dims::Tuple) where {T} = fill_tensor!(similar(array, T, dims), zero(T))
 host_array(array::Array) = array
 host_array(array::AbstractArray) = Array(array)
 sum_map(f, array, init) = gpu_array(array) ? AK.mapreduce(f, +, array; init) : sum(f, array; init)
 
 function reduce_sum!(f, dest, input; backend=device_of(dest))
     backend === nothing && return sum!(f, dest, input)
-    return AK.mapreducedim!(f, +, dest, input; backend, init=zero(eltype(dest)))
+    return AK.mapreducedim!(f, +, dest, input; backend=recording_backend(backend), init=zero(eltype(dest)))
 end
 
 reduce_sum!(::Type{T}, dest, input; backend=device_of(dest)) where {T} =
@@ -83,9 +83,7 @@ struct SquaredMagnitude{T} end
 
 function launch!(kernel, output, args...; ndrange=length(output), groupsize=256)
     if !isempty(output)
-        backend = device_of(output)
-        recording = kernel_recording[]
-        target = recording === nothing ? backend : RecordingBackend(backend, recording)
+        target = recording_backend(device_of(output))
         kernel(target, groupsize)(output, args...; ndrange)
     end
     return output
@@ -107,11 +105,23 @@ struct RecordingBackend{B<:KA.Backend} <: KA.Backend
     launches::Vector{RecordedLaunch}
 end
 
+function recording_backend(backend)
+    recording = kernel_recording[]
+    return recording === nothing ? backend : RecordingBackend(backend, recording)
+end
+
 KI.argconvert(b::RecordingBackend, arg) = KI.argconvert(b.backend, arg)
 KI.max_work_group_size(b::RecordingBackend) = KI.max_work_group_size(b.backend)
 KI.max_work_group_dims(b::RecordingBackend) = KI.max_work_group_dims(b.backend)
 KI.max_num_groups(b::RecordingBackend) = KI.max_num_groups(b.backend)
+KI.supports_linear_subgroups(b::RecordingBackend) = KI.supports_linear_subgroups(b.backend)
+KI.supports_shuffle(b::RecordingBackend, T::Type) = KI.supports_shuffle(b.backend, T)
+KI.sub_group_size(b::RecordingBackend) = KI.sub_group_size(b.backend)
+KI.multiprocessor_count(b::RecordingBackend) = KI.multiprocessor_count(b.backend)
+KI.allocate(b::RecordingBackend, T::Type, dims::Tuple; kwargs...) = KI.allocate(b.backend, T, dims; kwargs...)
 KI.max_work_group_size(kernel::KI.Kernel{<:RecordingBackend}) = KI.max_work_group_size(kernel.kern)
+AK.reduce_tuning(b::RecordingBackend, T::Type) = AK.reduce_tuning(b.backend, T)
+AK.fill_on!(dest, value, ::RecordingBackend) = fill_tensor!(dest, value)
 
 function KI.kernel_function(b::RecordingBackend, f, tt=Tuple{}; kwargs...)
     return KI.Kernel(b, KI.kernel_function(b.backend, f, tt; kwargs...))
@@ -126,6 +136,33 @@ function record_launches(f)
     launches = RecordedLaunch[]
     Base.ScopedValues.@with kernel_recording => launches f()
     return launches
+end
+
+# Metal indirect buffers can dispatch compute kernels, but cannot record the
+# runtime's blits or broadcasts. Use the same recorder for those tensor writes.
+recording_writes(dest) = kernel_recording[] !== nothing && gpu_array(dest)
+
+function broadcast_tensor!(f, dest, args...)
+    bc = Base.Broadcast.broadcasted(f, args...)
+    recording_writes(dest) || return Base.Broadcast.materialize!(dest, bc)
+    bc = Base.Broadcast.instantiate(Base.Broadcast.Broadcasted(bc.f, bc.args, axes(dest)))
+    bc = Base.Broadcast.preprocess(dest, bc)
+    return launch!(broadcast_tensor_gpu!, dest, bc)
+end
+
+function map_tensor(f, input, ::Type{T}) where {T}
+    recording_writes(input) || return f.(input)
+    return broadcast_tensor!(f, similar(input, T), input)
+end
+
+function copy_tensor!(dest, src)
+    recording_writes(dest) || return copyto!(dest, src)
+    return broadcast_tensor!(identity, dest, src)
+end
+
+function fill_tensor!(dest, value)
+    recording_writes(dest) || return fill!(dest, value)
+    return broadcast_tensor!(identity, dest, value)
 end
 
 """Copy tensors or a model to a KernelAbstractions backend, preserving parameter ties."""
