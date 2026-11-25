@@ -6,7 +6,6 @@ replay_warmups(backend) = 0
 replay_cache(backend) = nothing
 warm_replay(f, backend, cache, warmed) = f()
 function capture_replay end
-backend_replayable(backend, model, example, loss) = true
 
 mutable struct ReplaySession{B,C}
     const backend::B
@@ -100,19 +99,6 @@ replayable(layer::Dropout, training) = !training || iszero(layer.rate)
 replayable(layer::Union{Dense,Convolution,UpSampling2D}, training) =
     layer.activation isa Union{PointwiseActivation,Softmax}
 
-# oneAPI currently uses the Dense subset of explicit kernel recording. Uniform precision keeps
-# type conversions out of the region, and the bias gradient uses one kernel
-# for up to 512 columns.
-recordable_dense(layer) = false
-recordable_dense(layer::Dense{Float32}) = layer.activation isa PointwiseActivation
-recordable_dense(layer::Sequential) = all(recordable_dense, layer.layers)
-
-recordable_workload(model, example, loss) =
-    example isa AbstractArray{Float32} && ndims(example) >= 2 && size(example, 1) > 0 &&
-    recordable_dense(model) &&
-    (loss === nothing || (loss isa Union{MeanSquaredError,QuadraticLoss} &&
-                          prod(Base.tail(size(example))) <= 512))
-
 struct InferencePlan{R,P,S,B,C}
     run::R
     reference::P
@@ -132,7 +118,7 @@ plan per concurrent caller.
 function prepare(model::AbstractLayer, example; replay::Bool=true)
     reference = parameter_reference(model)
     backend = execution_device(reference, example)
-    eligible = replay && replayable(model, false) && backend_replayable(backend, model, example, nothing)
+    eligible = replay && replayable(model, false)
     session = replay_session(backend, eligible)
     return InferencePlan(execution(model), reference, tensor_signature(example), backend, session)
 end
@@ -172,8 +158,7 @@ step. Training that uses active dropout or host-side index validation runs eager
 """
 function prepare(state::TrainingState, example, target; loss::AbstractLoss, replay::Bool=true)
     backend = execution_device(parameter_reference(state.model), example)
-    eligible = replay && loss isa ReplayLoss && replayable(state.model, true) &&
-               backend_replayable(backend, state.model, example, loss)
+    eligible = replay && loss isa ReplayLoss && replayable(state.model, true)
     session = replay_session(backend, eligible)
     return TrainingPlan(state, loss, tensor_signature((example, target)), session, state.forwards, state.revision)
 end

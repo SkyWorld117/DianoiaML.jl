@@ -27,9 +27,6 @@ function graph_api(driver)
     end
 end
 
-DianoiaML.backend_replayable(::oneAPIBackend, model, example, loss) =
-    DianoiaML.recordable_workload(model, example, loss)
-
 DianoiaML.replay_warmups(::oneAPIBackend) = 1
 
 struct IntelLaunch{A}
