@@ -15,6 +15,7 @@
         check_layer(MaxPooling2D((2, 2)), ones(Float32, 3, 3, 2, 2))
         check_layer(UpSampling2D((2, 3); activation=Sigmoid()), random_tensor(3, 2, 2, 2))
         check_layer(LayerNorm(5), random_tensor(5, 3, 2))
+        check_layer(LayerNorm(131), random_tensor(131, 67, 3))
         check_layer(Residual(Sequential(Dense(5, 5; activation=GELU()), Dense(5, 5))), random_tensor(5, 4, 2))
 
         check_layer(Attention(6; heads=2, causal=true), random_tensor(6, 5, 3))
@@ -34,7 +35,77 @@
         @test state_dict(to_device(CPU(), device_model)) == state_dict(graph)
     end
 
+    @testset "Prepared inference and training" begin
+        base = NBEATS(6, 2; blocks=2, width=7, hidden_layers=2, basis=3)
+        model = gpu(base)
+        x, y = gpu(random_tensor(6, 4)), gpu(random_tensor(2, 4))
+        partial_x, partial_y = gpu(ones(Float32, 6, 1)), gpu(zeros(Float32, 2, 1))
+        inference = prepare(model, x)
+        for _ in 1:4
+            x .+= 0.25f0
+            check_tensor(predict(inference, x), Array(predict(model, x)))
+        end
+        check_tensor(predict(inference, partial_x), Array(predict(model, partial_x)))
+        if GPU_NAME === :cuda && pkgversion(GPU_RUNTIME) >= v"6.5"
+            @test inference.replay.launch !== nothing
+        end
+
+        reference = TrainingState(gpu(base), AdamW())
+        state = TrainingState(model, AdamW())
+        loss = MeanSquaredError()
+        plan = prepare(state, x, y; loss)
+        train!(state, x, y) = (forward!(state, x); backward!(state, y; loss); step!(state))
+        function compare_batch(x, y)
+            step!(plan, x, y)
+            train!(reference, x, y)
+        end
+        for _ in 1:4
+            x .+= 0.1f0
+            y .-= 0.2f0
+            compare_batch(x, y)
+        end
+        if GPU_NAME === :cuda && pkgversion(GPU_RUNTIME) >= v"6.5"
+            @test plan.replay.launch !== nothing
+        end
+        compare_batch(partial_x, partial_y)
+        for candidate in (state, reference)
+            value = first(candidate.slots).value
+            set_group!(candidate, value; trainable=false)
+        end
+        for _ in 1:4
+            compare_batch(x, y)
+        end
+        batches_to_accumulate = ((x, y), (x .+ 0.5f0, y .- 0.5f0), (x, y))
+        fit!(plan, batches_to_accumulate; accumulate=2, clip_norm=1, verbose=false)
+        fit!(reference, batches_to_accumulate; loss, accumulate=2, clip_norm=1, verbose=false)
+        @test state.forwards == reference.forwards == 12
+        @test state.epochs == reference.epochs == 1
+        @test state.samples == state.microbatches == 0
+        for (slot, other) in zip(state.slots, reference.slots)
+            @test slot.step == other.step
+            @test Array(slot.value) ≈ Array(other.value)
+            @test Array(slot.first) ≈ Array(other.first)
+            @test Array(slot.second) ≈ Array(other.second)
+            @test all(iszero, Array(slot.gradient))
+        end
+
+        stochastic = TrainingState(gpu(Sequential(Dense(6, 2), Dropout(0.5f0))), SGD(); seed=2)
+        @test prepare(stochastic, x, y; loss).replay === nothing
+    end
+
     @testset "Precision and loss functions" begin
+        for T in (Float32, Float16, BFloat16)
+            DianoiaML.gpu_precision_available(GPU_BACKEND, T) || continue
+            logits = T.(8 .* random_tensor(1031, 7, 2))
+            labels = reshape(Int32.(1:14) .* 70, 7, 2)
+            loss = IndexedCrossEntropyWithLogits()
+            output = gpu(logits)
+            @test loss(output, labels) ≈ loss(logits, labels) rtol=1f-5
+            expected = loss_gradient!(similar(logits), loss, logits, labels)
+            actual = loss_gradient!(similar(output), loss, output, labels)
+            check_tensor(actual, expected; atol=1f-4, rtol=2f-3)
+            @test_throws ArgumentError loss(output, zero(labels))
+        end
         for T in (Float16, BFloat16, Float64)
             if !DianoiaML.gpu_precision_available(GPU_BACKEND, T)
                 @test_throws ArgumentError gpu(Dense(1, 1; precision=T))

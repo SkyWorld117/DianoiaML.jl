@@ -32,6 +32,17 @@ end
 
 gelu_constants(::Type{A}) where {A} = sqrt(A(2) / A(π)), A(44715//1000000)
 
+const PointwiseActivation = Union{Identity,ReLU,Sigmoid,Tanh,GELU}
+
+pointwise_arguments(::PointwiseActivation, ::Type) = ()
+pointwise_arguments(::GELU, ::Type{T}) where {T} = gelu_constants(accumulation_type(T))
+
+@inline activate_scalar(::Identity, x, args) = x
+@inline activate_scalar(::ReLU, x, args) = max(zero(x), x)
+@inline activate_scalar(::Sigmoid, x, args) = sigmoid(x)
+@inline activate_scalar(::Tanh, x, args) = tanh(x)
+@inline activate_scalar(::GELU, x, args) = gelu(typeof(first(args))(x), args...)
+
 function activate_values!(out, ::GELU, x)
     A = accumulation_type(eltype(x))
     c, k = gelu_constants(A)

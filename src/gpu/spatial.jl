@@ -39,10 +39,12 @@ end
     patches[feature, position] = valid ? input[x, y, c+1, b] : zero(eltype(patches))
 end
 
-@kernel inbounds=true function convolution_output_gpu!(output, values, bias)
+@kernel inbounds=true function convolution_output_gpu!(output, z, values, bias, activation, args)
     i, j, c, b = @index(Global, NTuple)
     position = i + size(output, 1) * ((j-1) + size(output, 2) * (b-1))
-    output[i, j, c, b] = values[c, position] + bias[c]
+    value = eltype(z)(values[c, position] + bias[c])
+    z[i, j, c, b] = value
+    output[i, j, c, b] = activate_scalar(activation, value, args)
 end
 
 @kernel inbounds=true function convolution_delta_gpu!(values, delta)
@@ -92,7 +94,12 @@ function gpu_convolution_forward!(layer::Convolution{P}, cache, input) where {P}
             stride, padding; ndrange=size(work.patches), groupsize=COLUMN_GROUP)
     W = reshape(layer.filters, size(layer.filters, 1), :)
     gpu_convolution_multiply!(device_of(input), work.values, W, work.patches, one(eltype(work.values)))
-    launch!(convolution_output_gpu!, cache.values, work.values, layer.bias;
+    if layer.activation isa PointwiseActivation
+        return launch!(convolution_output_gpu!, cache.output, cache.values, work.values, layer.bias,
+                       layer.activation, pointwise_arguments(layer.activation, eltype(cache.values));
+                       ndrange=size(cache.values), groupsize=SPATIAL_GROUP)
+    end
+    launch!(convolution_output_gpu!, cache.values, cache.values, work.values, layer.bias, Identity(), ();
             ndrange=size(cache.values), groupsize=SPATIAL_GROUP)
     return activate_values!(cache.output, layer.activation, cache.values)
 end

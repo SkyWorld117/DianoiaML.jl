@@ -16,6 +16,7 @@ module DianoiaML
     export CrossEntropyWithLogits, BinaryCrossEntropyWithLogits, loss_value, loss_gradient!
     export IndexedCrossEntropyWithLogits
     export SGD, Adam, AdamW, RMSProp, AdaBelief, TrainingState, batches, fit!, forward!, backward!, step!, predict
+    export prepare
     export shape, parameters, gradients, set_group!, zero_grad!, persistent_buffers
     export layer_cache, layer_parameters, layer_gradients, output_shape
     export GAN, GANState, generate, fit_population!
@@ -58,6 +59,7 @@ module DianoiaML
     include("optimizer/parameter_update.jl")
     include("optimizer/training.jl")
     include("optimizer/training_state.jl")
+    include("optimizer/execution_plan.jl")
     include("network/gan.jl")
     include("optimizer/ga.jl")
 
