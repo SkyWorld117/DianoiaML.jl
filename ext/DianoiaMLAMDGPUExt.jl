@@ -6,7 +6,7 @@ using LinearAlgebra: mul!
 
 DianoiaML.gpu_backend(::Val{:amd}) = ROCBackend()
 
-include("rocm_replay.jl")
+include("replay_rocm.jl")
 
 function DianoiaML.gpu_convolution_multiply!(::ROCBackend, output, left, right, α::Float32)
     m, n = size(output)

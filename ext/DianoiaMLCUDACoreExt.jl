@@ -7,7 +7,7 @@ using Random: Xoshiro
 
 DianoiaML.gpu_backend(::Val{:cuda}) = CUDABackend()
 
-include("cuda_replay.jl")
+include("replay_cuda.jl")
 
 function convolution_workload(backend, ::Type{T}) where {T}
     model = to_device(backend, Sequential(
