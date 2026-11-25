@@ -140,5 +140,6 @@
                         monitor=Absolute(), keep=1, mutation=0, epochs=1, verbose=false)
         @test state_dict(elite) == state_dict(child)
     end
+    include("builtins_gpu.jl")
     synchronize(GPU_BACKEND)
 end

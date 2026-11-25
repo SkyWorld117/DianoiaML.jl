@@ -82,7 +82,7 @@ function column_sum!(output, values, divisor::A) where {A}
     if columns <= 1024 && 0 < KA.KernelInterface.multiprocessor_count(backend) <= cld(rows, 256) ÷ 2
         return launch!(column_sum_gpu!, output, values, divisor)
     end
-    AK.mapreducedim!(A, +, output, values; backend, init=zero(A))
+    reduce_sum!(A, output, values; backend)
     output ./= divisor
     return output
 end

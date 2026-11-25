@@ -6,6 +6,9 @@ end
 accumulation_type(::Type{T}) where {T<:AbstractFloat} =
     isbitstype(T) && sizeof(T) < sizeof(Float32) ? Float32 : T
 
+struct ConvertTo{T} <: Function end
+(::ConvertTo{T})(value) where {T} = T(value)
+
 random_precision(::Type{T}) where {T<:Union{Float32,Float64,BigFloat}} = T
 random_precision(::Type{<:AbstractFloat}) = BigFloat
 
