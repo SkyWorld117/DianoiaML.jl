@@ -62,7 +62,7 @@ function forward!(layer::Dense{T}, cache::DenseCache{T,A}, input::AbstractArray{
         launch!(dense_epilogue_gpu!, output, z, layer.bias, layer.activation,
                 pointwise_arguments(layer.activation, T))
     else
-        z .+= layer.bias
+        broadcast_tensor!(+, z, z, layer.bias)
         activate_values!(output, layer.activation, z)
     end
     return cache.output
@@ -72,11 +72,11 @@ function backward!(layer::Dense{T}, cache::DenseCache{T,A}, input, ∇y; compute
     size(∇y) == size(cache.output) || throw(DimensionMismatch("Dense cotangent shape differs"))
     z, δ = cache.values, cache.delta
     output, upstream = reshape(cache.output, size(z)), reshape(∇y, size(z))
-    if kernel_recording[] === nothing
-        activation_gradient!(δ, layer.activation, z, output, upstream)
-    else
+    if kernel_recording[] !== nothing && layer.activation isa PointwiseActivation
         launch!(dense_activation_gradient_gpu!, δ, z, output, upstream, layer.activation,
                 pointwise_arguments(layer.activation, T))
+    else
+        activation_gradient!(δ, layer.activation, z, output, upstream)
     end
     width = size(input, 1)
     ∇x = reshape(cache.input_gradient, width, :)

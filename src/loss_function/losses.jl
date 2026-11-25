@@ -45,7 +45,7 @@ end
 function loss_gradient!(∇ŷ, ::AbsoluteLoss, ŷ, y)
     check_loss_shape(ŷ, y)
     y = compatible_target(ŷ, y)
-    return ∇ŷ .= sign.(ŷ .- y)
+    return broadcast_tensor!((prediction, target) -> sign(prediction - target), ∇ŷ, ŷ, y)
 end
 
 function loss_value(::CategoricalCrossEntropy, p, y)
@@ -58,7 +58,8 @@ end
 function loss_gradient!(∇p, ::CategoricalCrossEntropy, p, y)
     check_loss_shape(p, y)
     y = compatible_target(p, y)
-    return ∇p .= -y ./ max.(p, probability_floor(eltype(p)))
+    return broadcast_tensor!((prediction, target, ε) -> -target / max(prediction, ε),
+                             ∇p, p, y, probability_floor(eltype(p)))
 end
 
 function loss_value(::BinaryCrossEntropy, output, target)
@@ -75,7 +76,8 @@ function loss_gradient!(∇p, ::BinaryCrossEntropy, p, y)
     check_loss_shape(p, y)
     y = compatible_target(p, y)
     ε = probability_floor(eltype(p))
-    return ∇p .= (1 .- y) ./ max.(1 .- p, ε) .- y ./ max.(p, ε)
+    gradient(p, y, ε) = (1 - y) / max(1 - p, ε) - y / max(p, ε)
+    return broadcast_tensor!(gradient, ∇p, p, y, ε)
 end
 
 function loss_value(::BinaryCrossEntropyWithLogits, output, target)
@@ -91,8 +93,8 @@ end
 function loss_gradient!(∇z, ::BinaryCrossEntropyWithLogits, z, y)
     check_loss_shape(z, y)
     y = compatible_target(z, y)
-    A = loss_type(z)
-    return ∇z .= sigmoid.(A.(z)) .- A.(y)
+    cast = ConvertTo{loss_type(z)}()
+    return broadcast_tensor!((logit, target) -> sigmoid(cast(logit)) - cast(target), ∇z, z, y)
 end
 
 function loss_value(::CrossEntropyWithLogits, output, target)

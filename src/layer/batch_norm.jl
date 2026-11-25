@@ -68,22 +68,25 @@ function forward!(layer::BatchNorm2D{T,A}, cache::BatchNormCache, input::Abstrac
         count = length(input) ÷ size(input, 3)
         n = A(count)
         reduce_sum!(A, μ, input)
-        μ ./= n
-        z .= A.(input) .- μ
+        broadcast_tensor!(/, μ, μ, n)
+        broadcast_tensor!((x, mean) -> A(x) - mean, z, input, μ)
         reduce_sum!(abs2, σ², z)
-        σ² ./= n
+        broadcast_tensor!(/, σ², σ², n)
         weight = layer.momentum
         correction = count > 1 ? n / A(count - 1) : one(A)
-        layer.running_mean .= (1 - weight) .* layer.running_mean .+ weight .* vec(μ)
-        layer.running_variance .= (1 - weight) .* layer.running_variance .+ (weight * correction) .* vec(σ²)
+        update(previous, current, rate, scale) = (1 - rate) * previous + scale * current
+        broadcast_tensor!(update, layer.running_mean, layer.running_mean, vec(μ), weight, weight)
+        broadcast_tensor!(update, layer.running_variance, layer.running_variance, vec(σ²),
+                          weight, weight * correction)
     else
-        copyto!(μ, channel_axes(layer.running_mean))
-        copyto!(σ², channel_axes(layer.running_variance))
-        z .= A.(input) .- μ
+        copy_tensor!(μ, channel_axes(layer.running_mean))
+        copy_tensor!(σ², channel_axes(layer.running_variance))
+        broadcast_tensor!((x, mean) -> A(x) - mean, z, input, μ)
     end
-    cache.inverse_std .= inv.(sqrt.(σ² .+ layer.epsilon))
-    z .*= cache.inverse_std
-    cache.output .= z .* channel_axes(layer.scale) .+ channel_axes(layer.bias)
+    broadcast_tensor!((variance, epsilon) -> inv(sqrt(variance + epsilon)), cache.inverse_std, σ², layer.epsilon)
+    broadcast_tensor!(*, z, z, cache.inverse_std)
+    broadcast_tensor!((x, scale, bias) -> x * scale + bias, cache.output,
+                      z, channel_axes(layer.scale), channel_axes(layer.bias))
     return cache.output
 end
 
@@ -93,20 +96,21 @@ function backward!(layer::BatchNorm2D{T,A}, cache::BatchNormCache, input, ∇y;
     ∑∇y, ∑∇yz = cache.mean, cache.variance
     if cache.training || compute_parameters
         reduce_sum!(A, ∑∇y, ∇y)
-        cache.product .= A.(∇y) .* z
+        broadcast_tensor!((dy, x) -> A(dy) * x, cache.product, ∇y, z)
         reduce_sum!(identity, ∑∇yz, cache.product)
     end
     γ = channel_axes(layer.scale)
     if cache.training
         n = A(length(input) ÷ size(input, 3))
-        ∇x .= γ .* cache.inverse_std .* (A.(∇y) .- (∑∇y .+ z .* ∑∇yz) ./ n)
+        input_gradient(scale, inv_std, dy, s, x, p, n) = scale * inv_std * (A(dy) - (s + x * p) / n)
+        broadcast_tensor!(input_gradient, ∇x, γ, cache.inverse_std, ∇y, ∑∇y, z, ∑∇yz, n)
     else
-        ∇x .= γ .* cache.inverse_std .* A.(∇y)
+        broadcast_tensor!((scale, inv_std, dy) -> scale * inv_std * A(dy), ∇x, γ, cache.inverse_std, ∇y)
     end
     if compute_parameters
         batch = A(size(input, 4))
-        cache.scale_gradient .= vec(∑∇yz) ./ batch
-        cache.bias_gradient .= vec(∑∇y) ./ batch
+        broadcast_tensor!(/, cache.scale_gradient, vec(∑∇yz), batch)
+        broadcast_tensor!(/, cache.bias_gradient, vec(∑∇y), batch)
     end
     return ∇x
 end

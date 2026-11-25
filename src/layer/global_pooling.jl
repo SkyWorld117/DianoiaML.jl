@@ -14,9 +14,9 @@ function forward!(::GlobalMeanPool2D, cache::ActivationCache, input::AbstractArr
         cache.output = similar(input, A, dims)
     end
     reduce_sum!(A, cache.output, input)
-    cache.output ./= A(width * height)
+    broadcast_tensor!(/, cache.output, cache.output, A(width * height))
     result = reshape(cache.output, channels, batch)
-    return A === T ? result : T.(result)
+    return A === T ? result : map_tensor(ConvertTo{T}(), result, T)
 end
 
 function backward!(::GlobalMeanPool2D, cache::ActivationCache, input, ∇y; compute_parameters=true)
@@ -26,6 +26,6 @@ function backward!(::GlobalMeanPool2D, cache::ActivationCache, input, ∇y; comp
     end
     width, height, channels, batch = size(input)
     A = accumulation_type(eltype(∇y))
-    cache.gradient .= A.(reshape(∇y, 1, 1, channels, batch)) ./ A(width * height)
-    return cache.gradient
+    return broadcast_tensor!((dy, n) -> typeof(n)(dy) / n, cache.gradient,
+                             reshape(∇y, 1, 1, channels, batch), A(width * height))
 end

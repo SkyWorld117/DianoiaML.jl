@@ -100,7 +100,7 @@ replayable(layer::Dropout, training) = !training || iszero(layer.rate)
 replayable(layer::Union{Dense,Convolution,UpSampling2D}, training) =
     layer.activation isa Union{PointwiseActivation,Softmax}
 
-# Explicit kernel recording covers the Dense path. Uniform precision keeps
+# oneAPI currently uses the Dense subset of explicit kernel recording. Uniform precision keeps
 # type conversions out of the region, and the bias gradient uses one kernel
 # for up to 512 columns.
 recordable_dense(layer) = false
@@ -125,8 +125,9 @@ end
     prepare(model, example; replay=true)
 
 Prepare an inference plan for the example's shape and element type. Pass the
-plan to `predict` to reuse its workspace. Copy outputs that must survive the
-next prediction. Use a separate plan per concurrent caller.
+plan to `predict` to reuse its workspace and enable native replay on supported
+GPU backends. Copy outputs that must survive the next prediction. Use a separate
+plan per concurrent caller.
 """
 function prepare(model::AbstractLayer, example; replay::Bool=true)
     reference = parameter_reference(model)
@@ -165,7 +166,9 @@ end
 
 Prepare fixed-shape batches for `fit!(plan, data)` or `step!(plan, input, target)`.
 The plan reuses the training state's workspace and handles other batch sizes
-eagerly. With native replay, weight updates and clipping still run each step.
+eagerly. On supported GPU backends, native replay runs the forward and backward
+passes for eligible layers and losses. Weight updates and clipping still run each
+step. Training that uses active dropout or host-side index validation runs eagerly.
 """
 function prepare(state::TrainingState, example, target; loss::AbstractLoss, replay::Bool=true)
     backend = execution_device(parameter_reference(state.model), example)

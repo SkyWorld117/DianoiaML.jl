@@ -11,12 +11,12 @@ struct GELU <: AbstractActivation end
 
 output_shape(::AbstractActivation, input) = input
 
-activate_values!(out, ::Identity, x) = copyto!(out, x)
-activate_values!(out, ::ReLU, x) = (out .= max.(zero(eltype(x)), x))
-activate_values!(out, ::Tanh, x) = (out .= tanh.(x))
+activate_values!(out, ::Identity, x) = copy_tensor!(out, x)
+activate_values!(out, ::ReLU, x) = broadcast_tensor!(max, out, zero(eltype(x)), x)
+activate_values!(out, ::Tanh, x) = broadcast_tensor!(tanh, out, x)
 
 sigmoid(x) = x >= 0 ? inv(one(x) + exp(-x)) : exp(x) / (one(x) + exp(x))
-activate_values!(out, ::Sigmoid, x) = (out .= sigmoid.(x))
+activate_values!(out, ::Sigmoid, x) = broadcast_tensor!(sigmoid, out, x)
 
 gelu_tanh(x, c, k) = tanh(c * (x + k * x^3))
 function gelu(x, c, k)
@@ -52,7 +52,7 @@ pointwise_arguments(::GELU, ::Type{T}) where {T} = gelu_constants(accumulation_t
 function activate_values!(out, ::GELU, x)
     A = accumulation_type(eltype(x))
     c, k = gelu_constants(A)
-    out .= gelu.(A.(x), c, k)
+    return broadcast_tensor!((value, c, k) -> gelu(typeof(c)(value), c, k), out, x, c, k)
 end
 
 function activate_values!(out, ::Softmax, x)
@@ -71,15 +71,19 @@ function activate_values!(out, ::Softmax, x)
     return out
 end
 
-activation_gradient!(∇x, ::Identity, x, y, ∇y) = copyto!(∇x, ∇y)
-activation_gradient!(∇x, ::ReLU, x, y, ∇y) = (∇x .= ifelse.(x .> 0, ∇y, zero(eltype(∇y))))
-activation_gradient!(∇x, ::Tanh, x, y, ∇y) = (∇x .= ∇y .* (1 .- abs2.(y)))
-activation_gradient!(∇x, ::Sigmoid, x, y, ∇y) = (∇x .= ∇y .* y .* (1 .- y))
+activation_gradient!(∇x, ::Identity, x, y, ∇y) = copy_tensor!(∇x, ∇y)
+activation_gradient!(∇x, ::ReLU, x, y, ∇y) =
+    broadcast_tensor!((value, dy) -> ifelse(value > 0, dy, zero(dy)), ∇x, x, ∇y)
+activation_gradient!(∇x, ::Tanh, x, y, ∇y) =
+    broadcast_tensor!((value, dy) -> dy * (1 - abs2(value)), ∇x, y, ∇y)
+activation_gradient!(∇x, ::Sigmoid, x, y, ∇y) =
+    broadcast_tensor!((value, dy) -> dy * value * (1 - value), ∇x, y, ∇y)
 
 function activation_gradient!(∇x, ::GELU, x, y, ∇y)
     A = accumulation_type(eltype(x))
     c, k = gelu_constants(A)
-    ∇x .= gelu_derivative.(A.(x), c, k) .* A.(∇y)
+    return broadcast_tensor!((value, dy, c, k) -> gelu_derivative(typeof(c)(value), c, k) * typeof(c)(dy),
+                             ∇x, x, ∇y, c, k)
 end
 
 function activation_gradient!(out, ::Softmax, x, y, upstream)

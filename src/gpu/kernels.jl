@@ -1,3 +1,9 @@
+@kernel inbounds=true function broadcast_tensor_gpu!(dest, bc)
+    i = @index(Global, Linear)
+    index = CartesianIndices(dest)[i]
+    dest[index] = bc[index]
+end
+
 @kernel inbounds=true function gather_examples_gpu!(output, input, indices, sample_width)
     i = @index(Global, Linear)
     sample, offset = divrem(i - 1, sample_width)
@@ -83,8 +89,7 @@ function column_sum!(output, values, divisor::A) where {A}
         return launch!(column_sum_gpu!, output, values, divisor)
     end
     reduce_sum!(A, output, values; backend)
-    output ./= divisor
-    return output
+    return broadcast_tensor!(/, output, output, divisor)
 end
 
 @kernel inbounds=true function dense_epilogue_gpu!(y, z, bias, activation, args)

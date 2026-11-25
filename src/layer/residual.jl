@@ -33,7 +33,7 @@ function sum_tensors!(cache, field, input, branch, op=+)
         setfield!(cache, field, similar(input, T))
     end
     dest = getfield(cache, field)
-    return dest .= op.(input, branch)
+    return broadcast_tensor!(op, dest, input, branch)
 end
 
 function forward!(::Residual, run::Execution, input::AbstractArray, mode)
