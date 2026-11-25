@@ -1,7 +1,7 @@
 name = "DianoiaML"
 uuid = "0bf644f3-9992-48f5-8d6e-b7168dcf6b06"
 authors = ["Yi Zhu, @SkyWord117"]
-version = "0.5.1"
+version = "0.5.2"
 
 [deps]
 AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
