@@ -71,7 +71,13 @@ end
 function backward!(layer::Dense{T}, cache::DenseCache{T,A}, input, ∇y; compute_parameters=true) where {T,A}
     size(∇y) == size(cache.output) || throw(DimensionMismatch("Dense cotangent shape differs"))
     z, δ = cache.values, cache.delta
-    activation_gradient!(δ, layer.activation, z, reshape(cache.output, size(z)), reshape(∇y, size(z)))
+    output, upstream = reshape(cache.output, size(z)), reshape(∇y, size(z))
+    if kernel_recording[] === nothing
+        activation_gradient!(δ, layer.activation, z, output, upstream)
+    else
+        launch!(dense_activation_gradient_gpu!, δ, z, output, upstream, layer.activation,
+                pointwise_arguments(layer.activation, T))
+    end
     width = size(input, 1)
     ∇x = reshape(cache.input_gradient, width, :)
     multiply!(∇x, transpose(layer.weights), δ, A)

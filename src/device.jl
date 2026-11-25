@@ -82,8 +82,50 @@ struct SquaredMagnitude{T} end
 (::SquaredMagnitude{T})(x) where {T} = abs2(T(x))
 
 function launch!(kernel, output, args...; ndrange=length(output), groupsize=256)
-    isempty(output) || kernel(device_of(output), groupsize)(output, args...; ndrange)
+    if !isempty(output)
+        backend = device_of(output)
+        recording = kernel_recording[]
+        target = recording === nothing ? backend : RecordingBackend(backend, recording)
+        kernel(target, groupsize)(output, args...; ndrange)
+    end
     return output
+end
+
+const KI = KA.KernelInterface
+
+struct RecordedLaunch{K,A}
+    kernel::K
+    groups::Dims{3}
+    items::Dims{3}
+    args::A
+end
+
+const kernel_recording = Base.ScopedValues.ScopedValue{Union{Nothing,Vector{RecordedLaunch}}}(nothing)
+
+struct RecordingBackend{B<:KA.Backend} <: KA.Backend
+    backend::B
+    launches::Vector{RecordedLaunch}
+end
+
+KI.argconvert(b::RecordingBackend, arg) = KI.argconvert(b.backend, arg)
+KI.max_work_group_size(b::RecordingBackend) = KI.max_work_group_size(b.backend)
+KI.max_work_group_dims(b::RecordingBackend) = KI.max_work_group_dims(b.backend)
+KI.max_num_groups(b::RecordingBackend) = KI.max_num_groups(b.backend)
+KI.max_work_group_size(kernel::KI.Kernel{<:RecordingBackend}) = KI.max_work_group_size(kernel.kern)
+
+function KI.kernel_function(b::RecordingBackend, f, tt=Tuple{}; kwargs...)
+    return KI.Kernel(b, KI.kernel_function(b.backend, f, tt; kwargs...))
+end
+
+function KI.launch(kernel::KI.Kernel{<:RecordingBackend}, groups::Dims{3}, items::Dims{3}, args::Tuple)
+    push!(kernel.backend.launches, RecordedLaunch(kernel.kern, groups, items, args))
+    return
+end
+
+function record_launches(f)
+    launches = RecordedLaunch[]
+    Base.ScopedValues.@with kernel_recording => launches f()
+    return launches
 end
 
 """Copy tensors or a model to a KernelAbstractions backend, preserving parameter ties."""

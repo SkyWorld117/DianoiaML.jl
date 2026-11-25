@@ -150,7 +150,13 @@ function backpropagate!(state, upstream, loss; accumulate)
     if accumulate
         for (i, gradient) in state.sources
             slot = state.slots[i]
-            slot.trainable && (slot.gradient .+= eltype(slot.gradient)(state.batch) .* gradient)
+            slot.trainable || continue
+            count = eltype(slot.gradient)(state.batch)
+            if kernel_recording[] === nothing
+                slot.gradient .+= count .* gradient
+            else
+                launch!(accumulate_gradient_gpu!, slot.gradient, gradient, count)
+            end
         end
         state.samples += state.batch
         state.microbatches += 1

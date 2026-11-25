@@ -31,6 +31,7 @@ function loss_gradient!(∇ŷ, loss::Union{QuadraticLoss,MeanSquaredError}, ŷ, 
     y = compatible_target(ŷ, y)
     A = loss_type(ŷ)
     scale = 2 * squared_scale(loss, ŷ)
+    kernel_recording[] === nothing || return launch!(squared_gradient_gpu!, ∇ŷ, ŷ, y, scale)
     return ∇ŷ .= scale .* (A.(ŷ) .- A.(y))
 end
 

@@ -12,4 +12,9 @@ DianoiaML.gpu_precision_available(::oneAPIBackend, ::Type{Float16}) =
 DianoiaML.gpu_precision_available(::oneAPIBackend, ::Type{BFloat16}) =
     oneAPI.eltype_support().bfloat16 && oneAPI.compiler_config(oneAPI.device()).target.supports_bfloat16
 
+# The graph adapter uses this runtime's internal stream and kernel bindings.
+if v"2.10" <= pkgversion(oneAPI) < v"2.11"
+    include("oneapi_replay.jl")
+end
+
 end

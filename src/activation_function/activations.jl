@@ -43,6 +43,12 @@ pointwise_arguments(::GELU, ::Type{T}) where {T} = gelu_constants(accumulation_t
 @inline activate_scalar(::Tanh, x, args) = tanh(x)
 @inline activate_scalar(::GELU, x, args) = gelu(typeof(first(args))(x), args...)
 
+@inline pointwise_pullback(::Identity, x, y, dy, args) = dy
+@inline pointwise_pullback(::ReLU, x, y, dy, args) = ifelse(x > 0, dy, zero(dy))
+@inline pointwise_pullback(::Sigmoid, x, y, dy, args) = (dy * y) * (one(y) - y)
+@inline pointwise_pullback(::Tanh, x, y, dy, args) = dy * (one(y) - abs2(y))
+@inline pointwise_pullback(::GELU, x, y, dy, args) = gelu_derivative(x, args...) * dy
+
 function activate_values!(out, ::GELU, x)
     A = accumulation_type(eltype(x))
     c, k = gelu_constants(A)
