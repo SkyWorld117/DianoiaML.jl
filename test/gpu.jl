@@ -62,7 +62,9 @@ function check_layer(model, inputs; atol=3f-5, rtol=5f-4)
     return on_device
 end
 
-if "--smoke" in ARGS
+if "--replay" in ARGS
+    include("replay_gpu.jl")
+elseif "--smoke" in ARGS
     @testset "DianoiaML GPU smoke ($GPU_NAME)" begin
         seed!(123)
         model = Sequential(Conv2D(1, 2; kernel_size=(2, 2), activation=ReLU()),

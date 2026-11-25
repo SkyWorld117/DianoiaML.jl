@@ -1,5 +1,15 @@
 compatible_target(output, target) = gpu_array(output) ? batch_on(device_of(output), target) : target
 
+@kernel inbounds=true function squared_gradient_gpu!(gradient, prediction, target, scale::A) where {A}
+    i = @index(Global, Linear)
+    gradient[i] = scale * (A(prediction[i]) - A(target[i]))
+end
+
+@kernel inbounds=true function accumulate_gradient_gpu!(gradient, source, count)
+    i = @index(Global, Linear)
+    gradient[i] += count * source[i]
+end
+
 @inline point_loss(::Union{QuadraticLoss,MeanSquaredError}, x, y, ε) = abs2(x - y)
 @inline point_loss(::AbsoluteLoss, x, y, ε) = abs(x - y)
 @inline point_loss(::CategoricalCrossEntropy, p, y, ε) = -y * log(max(p, ε))

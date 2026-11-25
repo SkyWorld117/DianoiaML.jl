@@ -94,6 +94,11 @@ end
     y[i] = activate_scalar(activation, value, args)
 end
 
+@kernel inbounds=true function dense_activation_gradient_gpu!(out, z, y, upstream, activation, args)
+    i = @index(Global, Linear)
+    out[i] = pointwise_pullback(activation, z[i], y[i], upstream[i], args)
+end
+
 @kernel inbounds=true function softmax_gpu_kernel!(y, x, ::Type{A}) where {A}
     col = @index(Global, Linear)
     peak = A(-Inf)
