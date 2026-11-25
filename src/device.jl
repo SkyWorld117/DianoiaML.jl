@@ -66,6 +66,14 @@ host_array(array::Array) = array
 host_array(array::AbstractArray) = Array(array)
 sum_map(f, array, init) = gpu_array(array) ? AK.mapreduce(f, +, array; init) : sum(f, array; init)
 
+function reduce_sum!(f, dest, input; backend=device_of(dest))
+    backend === nothing && return sum!(f, dest, input)
+    return AK.mapreducedim!(f, +, dest, input; backend, init=zero(eltype(dest)))
+end
+
+reduce_sum!(::Type{T}, dest, input; backend=device_of(dest)) where {T} =
+    reduce_sum!(ConvertTo{T}(), dest, input; backend)
+
 struct SquaredMagnitude{T} end
 (::SquaredMagnitude{T})(x) where {T} = abs2(T(x))
 

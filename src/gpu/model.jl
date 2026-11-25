@@ -17,6 +17,13 @@ adapt_model(move, layer::Convolution{P}) where {P} =
 
 adapt_model(move, layer::LayerNorm) = LayerNorm(move(layer.scale), move(layer.bias), layer.epsilon)
 
+adapt_model(move, layer::BatchNorm2D) =
+    BatchNorm2D(move(layer.scale), move(layer.bias), move(layer.running_mean),
+                move(layer.running_variance), layer.momentum, layer.epsilon)
+
+adapt_model(move, layer::Embedding) = Embedding(move(layer.weights))
+adapt_model(move, layer::PositionalEmbedding) = PositionalEmbedding(move(layer.weights))
+
 adapt_model(move, layer::Attention) =
     Attention(layer.heads, layer.causal, layer.cross_attention, layer.scale,
               map(child -> adapt_model(move, child), (layer.query, layer.key, layer.value, layer.projection))...)

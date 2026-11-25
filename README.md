@@ -23,4 +23,4 @@ predict(model, Float32[3;;])
 ```
 
 [Wiki](https://github.com/SkyWorld117/DianoiaML.jl/wiki) · [Development setup](https://github.com/SkyWorld117/DianoiaML.jl/wiki/Installation#development) ·
-[MNIST example](https://github.com/SkyWorld117/DianoiaML.jl/wiki/MNIST) · [GPU training](https://github.com/SkyWorld117/DianoiaML.jl/wiki/GPU) · [Release notes](UPDATES.md)
+[Built-in models](https://github.com/SkyWorld117/DianoiaML.jl/wiki/Built-in-models) · [MNIST example](https://github.com/SkyWorld117/DianoiaML.jl/wiki/MNIST) · [GPU training](https://github.com/SkyWorld117/DianoiaML.jl/wiki/GPU) · [Release notes](UPDATES.md)

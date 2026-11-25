@@ -25,7 +25,7 @@ end
 
 layer_cache(::Residual) = ResidualCache()
 
-function sum_tensors!(cache, field, input, branch)
+function sum_tensors!(cache, field, input, branch, op=+)
     size(input) == size(branch) || throw(DimensionMismatch("residual branch must preserve the input shape"))
     T = promote_type(eltype(input), eltype(branch))
     if !isdefined(cache, field) || size(getfield(cache, field)) != size(input) ||
@@ -33,7 +33,7 @@ function sum_tensors!(cache, field, input, branch)
         setfield!(cache, field, similar(input, T))
     end
     dest = getfield(cache, field)
-    return dest .= input .+ branch
+    return dest .= op.(input, branch)
 end
 
 function forward!(::Residual, run::Execution, input::AbstractArray, mode)
