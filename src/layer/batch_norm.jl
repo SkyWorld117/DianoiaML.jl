@@ -64,6 +64,7 @@ function forward!(layer::BatchNorm2D{T,A}, cache::BatchNormCache, input::Abstrac
     end
     z, μ, σ² = cache.normalized, cache.mean, cache.variance
     cache.training = mode isa TrainingMode
+    gpu_array(input) && return gpu_batch_norm_forward!(layer, cache, input)
     if cache.training
         count = length(input) ÷ size(input, 3)
         n = A(count)
@@ -109,8 +110,13 @@ function backward!(layer::BatchNorm2D{T,A}, cache::BatchNormCache, input, ∇y;
     end
     if compute_parameters
         batch = A(size(input, 4))
-        broadcast_tensor!(/, cache.scale_gradient, vec(∑∇yz), batch)
-        broadcast_tensor!(/, cache.bias_gradient, vec(∑∇y), batch)
+        if gpu_array(input)
+            launch!(batch_norm_parameter_gradients_gpu!, cache.scale_gradient, cache.bias_gradient,
+                    ∑∇yz, ∑∇y, batch)
+        else
+            broadcast_tensor!(/, cache.scale_gradient, vec(∑∇yz), batch)
+            broadcast_tensor!(/, cache.bias_gradient, vec(∑∇y), batch)
+        end
     end
     return ∇x
 end

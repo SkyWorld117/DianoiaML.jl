@@ -56,12 +56,13 @@ function forward!(layer::Dense{T}, cache::DenseCache{T,A}, input::AbstractArray{
         cache.input_gradient = similar(input)
     end
     z = cache.values
-    multiply!(z, layer.weights, reshape(input, size(input, 1), :), A)
+    x = reshape(input, size(input, 1), :)
     output = reshape(cache.output, size(z))
-    if gpu_array(z) && layer.activation isa PointwiseActivation
-        launch!(dense_epilogue_gpu!, output, z, layer.bias, layer.activation,
-                pointwise_arguments(layer.activation, T))
+    if gpu_array(z) && layer.activation isa PointwiseActivation && !Base.mightalias(output, x)
+        epilogue = (output, layer.bias, layer.activation, pointwise_arguments(layer.activation, T))
+        gpu_multiply!(z, layer.weights, x, A, one(A); epilogue)
     else
+        multiply!(z, layer.weights, x, A)
         broadcast_tensor!(+, z, z, layer.bias)
         activate_values!(output, layer.activation, z)
     end
@@ -72,7 +73,11 @@ function backward!(layer::Dense{T}, cache::DenseCache{T,A}, input, ∇y; compute
     size(∇y) == size(cache.output) || throw(DimensionMismatch("Dense cotangent shape differs"))
     z, δ = cache.values, cache.delta
     output, upstream = reshape(cache.output, size(z)), reshape(∇y, size(z))
-    if kernel_recording[] !== nothing && layer.activation isa PointwiseActivation
+    if layer.activation isa Identity && upstream isa typeof(δ) && gpu_array(δ) &&
+       !Base.mightalias(upstream, cache.input_gradient) &&
+       (!compute_parameters || (!Base.mightalias(upstream, cache.weights) && !Base.mightalias(upstream, cache.bias)))
+        δ = upstream
+    elseif kernel_recording[] !== nothing && layer.activation isa PointwiseActivation
         launch!(dense_activation_gradient_gpu!, δ, z, output, upstream, layer.activation,
                 pointwise_arguments(layer.activation, T))
     else
@@ -84,11 +89,18 @@ function backward!(layer::Dense{T}, cache::DenseCache{T,A}, input, ∇y; compute
     if compute_parameters
         batch = A(size(input, ndims(input)))
         ∇W, ∇b = cache.weights, cache.bias
-        multiply!(∇W, δ, transpose(reshape(input, width, :)), A, inv(batch))
+        xᵀ = transpose(reshape(input, width, :))
         if gpu_array(∇b)
-            column_sum!(∇b, δ, batch)
+            if size(δ, 2) < 128
+                # The first output tile can reuse the upstream gradient for ∇b.
+                gpu_multiply!(∇W, δ, xᵀ, A, inv(batch); bias_gradient=(∇b, batch))
+            else
+                gpu_multiply!(∇W, δ, xᵀ, A, inv(batch))
+                column_sum!(∇b, δ, batch)
+            end
             return cache.input_gradient
         end
+        multiply!(∇W, δ, xᵀ, A, inv(batch))
         fill!(∇b, zero(A))
         for b in axes(δ, 2)
             @inbounds @simd for i in axes(δ, 1)

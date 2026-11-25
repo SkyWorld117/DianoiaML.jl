@@ -16,59 +16,141 @@ function gather_examples(input, indices)
     return launch!(gather_examples_gpu!, output, input, device_indices, prod(Base.front(size(input))))
 end
 
-# Shared tiles keep both operands in local memory while a workgroup multiplies them.
 const MATMUL_TILE = 16
 
-@kernel inbounds=true function matmul_gpu!(output, left, right, α::A, chunk) where {A}
-    row, col, part = @index(Global, NTuple)
+@inline function load_matmul_tile!(a, b, left, right, i, j, row, col, start, last, ::Val{B}) where {B}
+    A = eltype(a)
+    @inbounds for offset in 0:B-1
+        step = offset * MATMUL_TILE
+        if left isa Transpose
+            r, k = row + j + step, start + i
+            a[j + step, i] = r <= size(left, 1) && k <= last ? A(left[r, k]) : zero(A)
+        else
+            r, k = row + i + step, start + j
+            a[i + step, j] = r <= size(left, 1) && k <= last ? A(left[r, k]) : zero(A)
+        end
+        if right isa Transpose
+            k, c = start + j, col + i + step
+            b[j, i + step] = k <= last && c <= size(right, 2) ? A(right[k, c]) : zero(A)
+        else
+            k, c = start + i, col + j + step
+            b[i, j + step] = k <= last && c <= size(right, 2) ? A(right[k, c]) : zero(A)
+        end
+    end
+    return
+end
+
+@inline matmul_result!(output, row, col, part, value, ::Nothing) =
+    (@inbounds output[row, col, part] = value)
+
+@inline function matmul_result!(output, row, col, part, value, epilogue::Tuple)
+    y, bias, activation, args = epilogue
+    T = eltype(output)
+    @inbounds z = T(T(value) + bias[row])
+    @inbounds output[row, col, part] = z
+    @inbounds y[row, col] = activate_scalar(activation, z, args)
+    return
+end
+
+@inline function store_matmul_result!(output, row, col, part, value, epilogue)
+    if row <= size(output, 1) && col <= size(output, 2)
+        matmul_result!(output, row, col, part, value, epilogue)
+    end
+    return
+end
+
+# A larger output tile reuses the same shared operands across four accumulators
+# per thread. The extra shared-memory row avoids bank conflicts on transposed loads.
+@kernel inbounds=true function matmul_gpu!(output, left, right, α::A, chunk, epilogue,
+                                           bias_gradient, block::Val{B}) where {A,B}
+    block_row, block_col, part = @index(Group, NTuple)
     i, j, _ = @index(Local, NTuple)
-    a = @localmem A (MATMUL_TILE, MATMUL_TILE)
-    b = @localmem A (MATMUL_TILE, MATMUL_TILE)
-    total = zero(A)
+    a = @localmem A (B * MATMUL_TILE + 1, MATMUL_TILE)
+    b = @localmem A (MATMUL_TILE + 1, B * MATMUL_TILE)
+    row = (block_row - 1) * B * MATMUL_TILE
+    col = (block_col - 1) * B * MATMUL_TILE
+    c11 = c21 = c12 = c22 = zero(A)
+    bias1 = bias2 = zero(A)
+    reduce_bias = bias_gradient !== nothing && block_col == 1 && j == 1
     first = (part - 1) * chunk
     last = min(first + chunk, size(left, 2))
     for start in first:MATMUL_TILE:last-1
-        k, l = start + j, start + i
-        a[i, j] = row <= size(left, 1) && k <= last ? A(left[row, k]) : zero(A)
-        b[i, j] = col <= size(right, 2) && l <= last ? A(right[l, col]) : zero(A)
+        load_matmul_tile!(a, b, left, right, i, j, row, col, start, last, block)
         @synchronize
         for inner in 1:MATMUL_TILE
-            total = muladd(a[i, inner], b[inner, j], total)
+            a1, b1 = a[i, inner], b[inner, j]
+            c11 = muladd(a1, b1, c11)
+            if reduce_bias
+                bias1 += a1
+            end
+            if B == 2
+                a2, b2 = a[i + MATMUL_TILE, inner], b[inner, j + MATMUL_TILE]
+                c21 = muladd(a2, b1, c21)
+                c12 = muladd(a1, b2, c12)
+                c22 = muladd(a2, b2, c22)
+                if reduce_bias
+                    bias2 += a2
+                end
+            end
         end
         @synchronize
     end
-    if row <= size(output, 1) && col <= size(output, 2)
-        output[row, col, part] = α * total
+    r, c = row + i, col + j
+    store_matmul_result!(output, r, c, part, α * c11, epilogue)
+    if B == 2
+        store_matmul_result!(output, r + MATMUL_TILE, c, part, α * c21, epilogue)
+        store_matmul_result!(output, r, c + MATMUL_TILE, part, α * c12, epilogue)
+        store_matmul_result!(output, r + MATMUL_TILE, c + MATMUL_TILE, part, α * c22, epilogue)
+    end
+    if reduce_bias
+        dest, divisor = bias_gradient
+        if r <= length(dest)
+            dest[r] = bias1 / divisor
+        end
+        if B == 2 && r + MATMUL_TILE <= length(dest)
+            dest[r + MATMUL_TILE] = bias2 / divisor
+        end
     end
 end
 
-@kernel inbounds=true function sum_matmul_partials_gpu!(output, partials, α::A) where {A}
+@kernel inbounds=true function sum_matmul_partials_gpu!(output, partials, α::A, epilogue) where {A}
     row, col = @index(Global, NTuple)
     total = zero(A)
     for part in axes(partials, 3)
         total += partials[row, col, part]
     end
-    output[row, col] = α * total
+    matmul_result!(output, row, col, 1, α * total, epilogue)
 end
 
-function gpu_multiply!(output, left, right, ::Type{A}, α) where {A}
-    padded = map(n -> cld(n, MATMUL_TILE) * MATMUL_TILE, size(output))
+function gpu_multiply!(output, left, right, ::Type{A}, α; epilogue=nothing, bias_gradient=nothing) where {A}
     width = size(left, 2)
     tile = (MATMUL_TILE, MATMUL_TILE)
+    dest = reshape(output, size(output)..., 1)
     # Weight gradients have small outputs and long reductions. Give each
     # output tile several independent workgroups to fill more of the device.
-    if width >= 2048 && length(output) <= 2^16
+    if bias_gradient === nothing && width >= 2048 && length(output) <= 2^16
+        padded = map(n -> cld(n, MATMUL_TILE) * MATMUL_TILE, size(output))
         chunk = cld(width, 32 * MATMUL_TILE) * MATMUL_TILE
         parts = cld(width, chunk)
         partials = similar(output, A, (size(output)..., parts))
-        launch!(matmul_gpu!, partials, left, right, one(A), chunk;
+        launch!(matmul_gpu!, partials, left, right, one(A), chunk, nothing, nothing, Val(1);
                 ndrange=(padded..., parts), groupsize=(tile..., 1))
-        return launch!(sum_matmul_partials_gpu!, output, partials, A(α);
-                       ndrange=size(output), groupsize=tile)
+        launch!(sum_matmul_partials_gpu!, dest, partials, A(α), epilogue;
+                ndrange=size(output), groupsize=tile)
+        return output
     end
-    launch!(matmul_gpu!, reshape(output, size(output)..., 1), left, right, A(α), width;
-            ndrange=(padded..., 1), groupsize=(tile..., 1))
+    # Keep smaller matrices distributed across enough workgroups.
+    rows, columns = size(output)
+    block = width >= 32 && min(rows, columns) >= 32 && length(output) >= 2^18 ? Val(2) : Val(1)
+    matmul_launch!(dest, left, right, A(α), width, epilogue, bias_gradient, block, tile)
     return output
+end
+
+function matmul_launch!(dest, left, right, α, width, epilogue, bias_gradient, block::Val{B}, tile) where {B}
+    padded = map(n -> cld(n, B * MATMUL_TILE) * MATMUL_TILE, (size(dest, 1), size(dest, 2)))
+    launch!(matmul_gpu!, dest, left, right, α, width, epilogue, bias_gradient, block;
+            ndrange=(padded..., 1), groupsize=(tile..., 1))
+    return
 end
 
 @kernel inbounds=true function column_sum_gpu!(output, values, divisor::A) where {A}
@@ -80,8 +162,39 @@ end
     output[row] = total / divisor
 end
 
+const COLUMN_SUM_GROUP = (8, 16)
+
+@kernel inbounds=true function column_sum_tiled_gpu!(output, values, divisor::A) where {A}
+    row, _ = @index(Global, NTuple)
+    feature, lane = @index(Local, NTuple)
+    scratch = @localmem A COLUMN_SUM_GROUP
+    total = zero(A)
+    if row <= length(output)
+        for col in lane:COLUMN_SUM_GROUP[2]:size(values, 2)
+            total += A(values[row, col])
+        end
+    end
+    scratch[feature, lane] = total
+    @synchronize
+    for offset in (8, 4, 2, 1)
+        if lane <= offset
+            scratch[feature, lane] += scratch[feature, lane + offset]
+        end
+        @synchronize
+    end
+    if lane == 1 && row <= length(output)
+        output[row] = scratch[feature, 1] / divisor
+    end
+end
+
 function column_sum!(output, values, divisor::A) where {A}
     rows, columns = size(values)
+    if rows <= 512 && 128 <= columns <= 512
+        features, lanes = COLUMN_SUM_GROUP
+        padded = cld(rows, features) * features
+        return launch!(column_sum_tiled_gpu!, output, values, divisor;
+                       ndrange=(padded, lanes), groupsize=COLUMN_SUM_GROUP)
+    end
     columns <= 512 && return launch!(column_sum_gpu!, output, values, divisor)
     backend = device_of(output)
     # A moderate reduction can stay serial per row when there are enough workgroups.
@@ -92,11 +205,49 @@ function column_sum!(output, values, divisor::A) where {A}
     return broadcast_tensor!(/, output, output, divisor)
 end
 
-@kernel inbounds=true function dense_epilogue_gpu!(y, z, bias, activation, args)
-    i = @index(Global, Linear)
-    value = eltype(z)(z[i] + bias[mod1(i, length(bias))])
-    z[i] = value
-    y[i] = activate_scalar(activation, value, args)
+@kernel inbounds=true function batch_norm_statistics_gpu!(inv_std, running_mean, running_variance,
+                                                           mean, squared, count, rate, correction, ε)
+    c = @index(Global, Linear)
+    σ² = squared[c] / count
+    inv_std[c] = inv(sqrt(σ² + ε))
+    running_mean[c] = (1 - rate) * running_mean[c] + rate * mean[c]
+    running_variance[c] = (1 - rate) * running_variance[c] + (rate * correction) * σ²
+end
+
+@kernel inbounds=true function batch_norm_affine_gpu!(output, normalized, input, mean, inv_std,
+                                                       scale, bias, ::Val{training}) where {training}
+    x, y, c, b = @index(Global, NTuple)
+    A = eltype(normalized)
+    centered = training ? normalized[x, y, c, b] : A(input[x, y, c, b]) - mean[c]
+    value = centered * inv_std[c]
+    normalized[x, y, c, b] = value
+    output[x, y, c, b] = value * scale[c] + bias[c]
+end
+
+function gpu_batch_norm_forward!(layer::BatchNorm2D{T,A}, cache, input) where {T,A}
+    z, μ, σ², inv_std = cache.normalized, cache.mean, cache.variance, cache.inverse_std
+    if cache.training
+        count = length(input) ÷ size(input, 3)
+        n = A(count)
+        reduce_sum!(A, μ, input)
+        broadcast_tensor!(/, μ, μ, n)
+        broadcast_tensor!((x, mean) -> A(x) - mean, z, input, μ)
+        reduce_sum!(abs2, σ², z)
+        correction = count > 1 ? n / A(count - 1) : one(A)
+        launch!(batch_norm_statistics_gpu!, inv_std, layer.running_mean, layer.running_variance,
+                μ, σ², n, layer.momentum, correction, layer.epsilon)
+    else
+        broadcast_tensor!((variance, ε) -> inv(sqrt(variance + ε)), inv_std,
+                          channel_axes(layer.running_variance), layer.epsilon)
+    end
+    return launch!(batch_norm_affine_gpu!, cache.output, z, input, layer.running_mean, inv_std,
+                   layer.scale, layer.bias, Val(cache.training); ndrange=size(input), groupsize=SPATIAL_GROUP)
+end
+
+@kernel inbounds=true function batch_norm_parameter_gradients_gpu!(∇γ, ∇β, sum_product, sum_upstream, batch)
+    c = @index(Global, Linear)
+    ∇γ[c] = sum_product[c] / batch
+    ∇β[c] = sum_upstream[c] / batch
 end
 
 @kernel inbounds=true function dense_activation_gradient_gpu!(out, z, y, upstream, activation, args)

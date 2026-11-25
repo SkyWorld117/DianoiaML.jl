@@ -6,6 +6,7 @@
             check_layer(activation, random_tensor(5, 2, 2))
         end
         check_layer(Dense(3, 2), random_tensor(3, 2099))
+        check_layer(Dense(67, 523; activation=GELU()), random_tensor(67, 503))
         for Layer in (Conv2D, TConv2D)
             check_layer(Layer(2, 3; kernel_size=(3, 2), padding=1, stride=(2, 2), activation=Tanh()),
                         random_tensor(6, 5, 2, 3))
@@ -22,6 +23,9 @@
         mask = Bool[1 0; 1 0; 0 0; 1 0; 0 0]
         check_layer(Attention(6; heads=2, context_features=4),
                     (random_tensor(6, 3, 2), random_tensor(4, 5, 2), mask))
+        long_mask = [b == 1 && i % 4 != 0 for i in 1:67, b in 1:2]
+        check_layer(Attention(16; heads=2, context_features=8),
+                    (random_tensor(16, 65, 2), random_tensor(8, 67, 2), long_mask))
         check_layer(TransformerBlock(8; heads=2, hidden_size=12, causal=true),
                     (random_tensor(8, 5, 2), mask))
 
@@ -33,6 +37,22 @@
         weights = parameters(device_model)
         @test weights["shared.weights"] === weights["split.mapped.weights"]
         @test state_dict(to_device(CPU(), device_model)) == state_dict(graph)
+    end
+
+    @testset "Dense workspace aliases" begin
+        layer = gpu(Dense(37, 37))
+        input = gpu(random_tensor(37, 23))
+        plan = prepare(layer, input; replay=false)
+        prediction = predict(plan, input)
+        expected = Array(predict(layer, prediction))
+        check_tensor(predict(plan, prediction), expected)
+
+        state = TrainingState(layer, SGD())
+        forward!(state, input)
+        previous = backward!(state, input)
+        expected_gradient = transpose(Array(layer.weights)) * Array(previous)
+        forward!(state, input)
+        check_tensor(backward!(state, previous), expected_gradient)
     end
 
     @testset "Prepared inference and training" begin

@@ -91,7 +91,10 @@ function resize_convolution!(layer::Convolution{P,T}, cache, input) where {P,T}
     isdefined(cache, :input_gradient) && size(cache.input_gradient) == size(input) && return
     dims = (shape(layer, size(input)[1:3])..., size(input, 4))
     cache.values = similar(input, T, dims)
-    cache.output, cache.delta = similar(cache.values), similar(cache.values)
+    cache.output = similar(cache.values)
+    if !gpu_array(input) || !(layer.activation isa PointwiseActivation)
+        cache.delta = similar(cache.values)
+    end
     cache.input_gradient = similar(input)
     if P
         expanded = ntuple(d -> (size(input, d) - 1) * layer.stride[d] + 2 * layer.padding + 1, 2)
@@ -128,9 +131,9 @@ end
 function backward!(layer::Convolution{P,T}, cache::ConvolutionCache{T,A}, input, ∇y;
                    compute_parameters=true) where {P,T,A}
     size(∇y) == size(cache.output) || throw(DimensionMismatch("convolution cotangent shape differs"))
+    gpu_array(input) && return gpu_convolution_backward!(layer, cache, input, ∇y, compute_parameters)
     δ = cache.delta
     activation_gradient!(δ, layer.activation, cache.values, cache.output, ∇y)
-    gpu_array(input) && return gpu_convolution_backward!(layer, cache, input, compute_parameters)
     work = cache.workspace
     source = P ? cache.padded : input
     ∇x = P ? cache.padded_gradient : cache.input_gradient
