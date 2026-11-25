@@ -79,10 +79,8 @@ function encode_launch!(buffer, i, launch, pipelines, pointers, resources, const
     groups, threads = MTL.MTLSize(launch.groups), MTL.MTLSize(launch.items)
     Metal.check_launch(groups, threads, host.reqthreads, Int(pipeline.maxTotalThreadsPerThreadgroup),
                        Int(pipeline.staticThreadgroupMemoryLength))
-    command = @objc [buffer::id{MTL.MTLIndirectCommandBuffer}
-                     indirectComputeCommandAtIndex:(i - 1)::NSUInteger]::MTL.MTLIndirectComputeCommand
-    @objc [command::id{MTL.MTLIndirectComputeCommand}
-           setComputePipelineState:pipeline::id{MTL.MTLComputePipelineState}]::Nothing
+    command = @objc [buffer::id{MTL.MTLIndirectCommandBuffer} indirectComputeCommandAtIndex:(i - 1)::NSUInteger]::MTL.MTLIndirectComputeCommand
+    @objc [command::id{MTL.MTLIndirectComputeCommand} setComputePipelineState:pipeline::id{MTL.MTLComputePipelineState}]::Nothing
     if i > 1
         @objc [command::id{MTL.MTLIndirectComputeCommand} setBarrier]::Nothing
     end
