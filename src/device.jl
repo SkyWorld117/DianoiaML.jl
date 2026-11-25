@@ -1,4 +1,19 @@
 device_of(::Union{Array,BitArray,AbstractRange}) = nothing
+device_of(array::AbstractGPUArray) = device_backend(KA.get_backend(array))
+
+device_backend(::KA.CPU) = nothing
+device_backend(backend) = backend
+
+wide_float(::Nothing) = Float64
+wide_float(backend) = KA.supports_float64(backend) ? Float64 : Float32
+
+gpu_precision_available(backend, ::Type) = true
+
+function check_gpu_precision(backend, ::Type{T}) where {T}
+    isbitstype(T) || throw(ArgumentError("GPU storage requires an isbits element type"))
+    gpu_precision_available(backend, T) ||
+        throw(ArgumentError("$(typeof(backend)) does not support $T on the selected GPU"))
+end
 
 function device_of(array::AbstractArray)
     root = parent(array)
@@ -9,7 +24,7 @@ function device_of(array::AbstractArray)
         error isa ArgumentError || rethrow()
         return nothing
     end
-    return backend isa KA.CPU ? nothing : backend
+    return device_backend(backend)
 end
 
 function device_of(arrays::Union{Tuple,NamedTuple})
@@ -24,7 +39,7 @@ gpu_array(array) = device_of(array) !== nothing
 same_device(a, b) = device_of(a) === device_of(b)
 
 function device_copy(backend, array::AbstractArray)
-    isbitstype(eltype(array)) || throw(ArgumentError("GPU storage requires an isbits element type"))
+    check_gpu_precision(backend, eltype(array))
     output = KA.allocate(backend, eltype(array), size(array))
     copyto!(output, device_of(array) === backend ? array : Array(array))
     return output
