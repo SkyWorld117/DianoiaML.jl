@@ -3,7 +3,7 @@ module DianoiaML
     import KernelAbstractions as KA
     using KernelAbstractions: @kernel, @index, @localmem, @synchronize
     using BFloat16s: BFloat16
-    using LinearAlgebra: mul!
+    using LinearAlgebra: Transpose, mul!
     using Random: Xoshiro, default_rng, rand!, shuffle!
 
     export BFloat16, AbstractLayer, AbstractActivation, AbstractLoss, AbstractOptimizer

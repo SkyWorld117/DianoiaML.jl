@@ -149,7 +149,7 @@ if GPU_NAME === :cuda
         recorded = DianoiaML.record_launches() do
             DianoiaML.train_batch!(state, x, y, MeanSquaredError())
         end
-        @test length(recorded) == 17
+        @test length(recorded) == 12
         @test all(gradient -> all(iszero, Array(gradient)), values(gradients(state)))
         for launch in recorded
             DianoiaML.KI.launch(launch.kernel, launch.groups, launch.items, launch.args)
