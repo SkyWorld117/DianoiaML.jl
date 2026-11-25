@@ -27,7 +27,7 @@ DianoiaMLoneAPIExt = "oneAPI"
 
 [compat]
 AMDGPU = "2.11"
-AcceleratedKernels = "0.5"
+AcceleratedKernels = "0.5.13"
 BFloat16s = "0.6"
 CUDACore = "6"
 HDF5 = "0.17"

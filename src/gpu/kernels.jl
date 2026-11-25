@@ -74,7 +74,18 @@ end
     output[row] = total / divisor
 end
 
-column_sum!(output, values, divisor) = launch!(column_sum_gpu!, output, values, divisor)
+function column_sum!(output, values, divisor::A) where {A}
+    rows, columns = size(values)
+    columns <= 512 && return launch!(column_sum_gpu!, output, values, divisor)
+    backend = device_of(output)
+    # A moderate reduction can stay serial per row when there are enough workgroups.
+    if columns <= 1024 && 0 < KA.KernelInterface.multiprocessor_count(backend) <= cld(rows, 256) ÷ 2
+        return launch!(column_sum_gpu!, output, values, divisor)
+    end
+    AK.mapreducedim!(A, +, output, values; backend, init=zero(A))
+    output ./= divisor
+    return output
+end
 
 @kernel inbounds=true function softmax_gpu_kernel!(y, x, ::Type{A}) where {A}
     col = @index(Global, Linear)
