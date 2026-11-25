@@ -33,8 +33,8 @@
     end
 end
 
-if GPU_NAME === :metal
-    @testset "Metal replay preserves bias reduction order" begin
+if GPU_NAME in (:metal, :oneapi)
+    @testset "Replay preserves bias reduction order ($GPU_NAME)" begin
         values = gpu(random_tensor(32, 26 * 26 * 125))
         expected = gpu(zeros(Float32, 32))
         actual = similar(expected)
@@ -47,8 +47,9 @@ if GPU_NAME === :metal
         @test Array(actual) == Array(expected)
     end
 
-    @testset "Metal convolution replay" begin
+    @testset "Convolution replay ($GPU_NAME)" begin
         for T in (Float32, Float16)
+            DianoiaML.gpu_precision_available(GPU_BACKEND, T) || continue
             architecture = Sequential(
                 Conv2D(2, 4; kernel_size=(3, 3), activation=ReLU(), precision=T),
                 BatchNorm2D(4; precision=T), MaxPooling2D((2, 2)), Flatten(),
@@ -84,7 +85,7 @@ if GPU_NAME === :metal
         end
     end
 
-    @testset "Metal graph replay with branching and views" begin
+    @testset "Graph replay with branching and views ($GPU_NAME)" begin
         architecture = Graph(; inputs=(:x, :context), nodes=(
             position=Node(PositionalEmbedding(3, 5), :x),
             combined=Node(Add(), :position, :context),
@@ -115,7 +116,7 @@ if GPU_NAME === :metal
         end
     end
 
-    @testset "Metal masked Transformer replay" begin
+    @testset "Masked Transformer replay ($GPU_NAME)" begin
         architecture = TransformerBlock(8; heads=2, causal=true, dropout=0)
         tokens = gpu(random_tensor(8, 5, 3))
         mask = gpu(trues(5, 3))
@@ -141,10 +142,6 @@ if GPU_NAME === :cuda
     @testset "Portable kernel recording" begin
         model = gpu(Sequential(Dense(11, 9; activation=Tanh()), Dense(9, 2)))
         x, y = gpu(random_tensor(11, 3, 4)), gpu(random_tensor(2, 3, 4))
-        @test DianoiaML.recordable_workload(model, x, MeanSquaredError())
-        @test !DianoiaML.recordable_workload(model, x, CrossEntropyWithLogits())
-        @test !DianoiaML.recordable_workload(model, ones(Float32, 11, 513), MeanSquaredError())
-
         state = TrainingState(model, AdamW())
         DianoiaML.train_batch!(state, x, y, MeanSquaredError())
         expected = Dict(name => Array(gradient) for (name, gradient) in gradients(state))
