@@ -1,5 +1,12 @@
 # Update Log
 
+### Update 0.5.2 - 11.25.2026
+
+- Added GPU training and inference on CUDA, ROCm, oneAPI, and Metal.
+- Added trainable ResNet-18, U-Net, GPT, and N-BEATS presets.
+- Added reusable execution plans and native replay for eligible fixed-shape workloads.
+- Accelerated shared GPU layer, loss, and optimizer kernels and added CUDA precompilation.
+
 ### Update 0.5.1 - 11.24.2026
 
 - Replaced model builders with configured layers, residual branches, and named graph nodes.
