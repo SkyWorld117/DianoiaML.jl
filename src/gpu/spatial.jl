@@ -52,17 +52,21 @@ end
 end
 
 @kernel inbounds=true function columns_to_image_gpu!(output, patches, output_width, output_height,
-                                                      kernel_size, stride, padding)
+                                                      kernel_size, ::Val{stride}, padding) where {stride}
     x, y, c, b = @index(Global, NTuple)
     channels = size(output, 3)
     total = zero(eltype(patches))
-    for ky in 0:kernel_size[2]-1, kx in 0:kernel_size[1]-1
-        i, dx = divrem(x + padding - kx - 1, stride[1])
+    for ky in 0:kernel_size[2]-1
         j, dy = divrem(y + padding - ky - 1, stride[2])
-        if iszero(dx) && iszero(dy) && 0 <= i < output_width && 0 <= j < output_height
-            feature = c + channels * (kx + kernel_size[1] * ky)
-            position = i + 1 + output_width * (j + output_height * (b-1))
-            total += patches[feature, position]
+        if iszero(dy) && 0 <= j < output_height
+            feature = c + channels * kernel_size[1] * ky
+            position = 1 + output_width * (j + output_height * (b-1))
+            for kx in 0:kernel_size[1]-1
+                i, dx = divrem(x + padding - kx - 1, stride[1])
+                if iszero(dx) && 0 <= i < output_width
+                    total += patches[feature + channels * kx, position + i]
+                end
+            end
         end
     end
     output[x, y, c, b] = total
@@ -70,6 +74,9 @@ end
 
 const SPATIAL_GROUP = (16, 8, 1, 1)
 const COLUMN_GROUP = (16, 16)
+
+gpu_convolution_multiply!(backend, output, left, right, α::A) where {A} =
+    gpu_multiply!(output, left, right, A, α)
 
 function gpu_convolution_forward!(layer::Convolution{P}, cache, input) where {P}
     work = cache.workspace
@@ -84,7 +91,7 @@ function gpu_convolution_forward!(layer::Convolution{P}, cache, input) where {P}
     launch!(image_to_columns_gpu!, work.patches, source, width, height, size(layer.filters, 3),
             stride, padding; ndrange=size(work.patches), groupsize=COLUMN_GROUP)
     W = reshape(layer.filters, size(layer.filters, 1), :)
-    multiply!(work.values, W, work.patches, eltype(work.values))
+    gpu_convolution_multiply!(device_of(input), work.values, W, work.patches, one(eltype(work.values)))
     launch!(convolution_output_gpu!, cache.values, work.values, layer.bias;
             ndrange=size(cache.values), groupsize=SPATIAL_GROUP)
     return activate_values!(cache.output, layer.activation, cache.values)
@@ -93,21 +100,23 @@ end
 function gpu_convolution_backward!(layer::Convolution{P}, cache, input, compute_parameters) where {P}
     work = cache.workspace
     A = eltype(work.values)
+    backend = device_of(input)
     stride, padding = P ? ((1, 1), 0) : (layer.stride, layer.padding)
     launch!(convolution_delta_gpu!, work.values, cache.delta; ndrange=size(work.values), groupsize=COLUMN_GROUP)
     W = reshape(layer.filters, size(layer.filters, 1), :)
-    multiply!(work.patch_gradient, transpose(W), work.values, A)
+    gpu_convolution_multiply!(backend, work.patch_gradient, transpose(W), work.values, one(A))
     ∇x = P ? cache.padded_gradient : cache.input_gradient
     kernel_size = (size(layer.filters, 3), size(layer.filters, 4))
     launch!(columns_to_image_gpu!, ∇x, work.patch_gradient, size(cache.delta, 1), size(cache.delta, 2),
-            kernel_size, stride, padding; ndrange=size(∇x), groupsize=SPATIAL_GROUP)
+            kernel_size, Val(stride), padding; ndrange=size(∇x), groupsize=SPATIAL_GROUP)
     if P
         launch!(extract_spatial_gpu!, cache.input_gradient, ∇x, layer.stride, layer.padding;
                 ndrange=size(input), groupsize=SPATIAL_GROUP)
     end
     if compute_parameters
         batch = A(size(input, 4))
-        multiply!(reshape(cache.filters, size(W)), work.values, transpose(work.patches), A, inv(batch))
+        gpu_convolution_multiply!(backend, reshape(cache.filters, size(W)), work.values,
+                                  transpose(work.patches), inv(batch))
         column_sum!(cache.bias, work.values, batch)
     end
     return cache.input_gradient

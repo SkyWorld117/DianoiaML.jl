@@ -10,6 +10,7 @@
             check_layer(Layer(2, 3; kernel_size=(3, 2), padding=1, stride=(2, 2), activation=Tanh()),
                         random_tensor(6, 5, 2, 3))
         end
+        check_layer(Conv2D(32, 64; kernel_size=(3, 3), padding=1), random_tensor(12, 13, 32, 8))
         check_layer(MaxPooling2D((3, 2); stride=(1, 2)), random_tensor(7, 5, 2, 3))
         check_layer(MaxPooling2D((2, 2)), ones(Float32, 3, 3, 2, 2))
         check_layer(UpSampling2D((2, 3); activation=Sigmoid()), random_tensor(3, 2, 2, 2))
@@ -41,6 +42,7 @@
             end
             layer = Dense(3, 2; precision=T, activation=GELU())
             check_layer(layer, T.(random_tensor(3, 3, 2)); atol=0.02, rtol=0.02)
+            check_layer(layer, T.(random_tensor(3, 513)); atol=0.02, rtol=0.02)
             spatial = Conv2D(1, 2; kernel_size=(2, 2), precision=T)
             check_layer(spatial, T.(random_tensor(4, 4, 1, 2)); atol=0.02, rtol=0.02)
         end
