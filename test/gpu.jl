@@ -1,27 +1,22 @@
 using DianoiaML
-using GPUArrays: AbstractGPUArray, allowscalar
-using OpenCL: cl, OpenCLBackend
+using CUDACore
 using KernelAbstractions: CPU, get_backend, synchronize
 using Random: Xoshiro, seed!
 using Test
 
-allowscalar(false)
-devices = [device for platform in cl.platforms() for device in cl.available_devices(platform, :gpu)]
-isempty(devices) && error("These tests require an OpenCL GPU")
-const TEST_DEVICE = first(devices)
-cl.device!(TEST_DEVICE)
-const GPU_BACKEND = OpenCLBackend()
-println("GPU tests on ", TEST_DEVICE.name, " through OpenCL")
+CUDACore.functional() || error("A working NVIDIA runtime is required for these GPU tests")
+CUDACore.allowscalar(false)
+const RTX_BACKEND = get_backend(CuArray(Float32[0]))
+println("GPU tests on ", CUDACore.name(CUDACore.device()))
 
-gpu(x) = to_device(GPU_BACKEND, x)
+gpu(x) = to_device(RTX_BACKEND, x)
 host(x::AbstractArray) = Array(x)
 host(::Nothing) = nothing
 host(xs::Union{Tuple,NamedTuple}) = map(host, xs)
 random_tensor(dims...) = randn(Xoshiro(76), Float32, dims...)
 
 function check_tensor(actual::AbstractArray, expected::AbstractArray; atol=3f-5, rtol=5f-4)
-    @test actual isa AbstractGPUArray
-    @test get_backend(actual) == GPU_BACKEND
+    @test actual isa CuArray
     @test Array(actual) ≈ expected atol=atol rtol=rtol
 end
 
@@ -88,10 +83,6 @@ end
 
     @testset "Precision and loss functions" begin
         for T in (Float16, BFloat16, Float64)
-            if !DianoiaML.gpu_precision_available(GPU_BACKEND, T)
-                @test_throws ArgumentError gpu(Dense(1, 1; precision=T))
-                continue
-            end
             layer = Dense(3, 2; precision=T, activation=GELU())
             check_layer(layer, T.(random_tensor(3, 3, 2)); atol=0.02, rtol=0.02)
             spatial = Conv2D(1, 2; kernel_size=(2, 2), precision=T)
@@ -120,7 +111,7 @@ end
         for opt in (SGD(), SGD(; momentum=0.9), Adam(), AdamW(), RMSProp(), AdaBelief())
             model = Dense(3, 2)
             cpu_state, gpu_state = TrainingState(model, opt), TrainingState(gpu(model), opt)
-            @test all(slot -> slot.gradient isa AbstractGPUArray, gpu_state.slots)
+            @test all(slot -> slot.gradient isa CuArray, gpu_state.slots)
             for (state, data) in ((cpu_state, (x, y)), (gpu_state, (gpu(x), gpu(y))))
                 fit!(state, batches(data...; batch_size=2, shuffle=false); loss=MeanSquaredError(),
                      epochs=2, accumulate=2, clip_norm=1)
@@ -171,7 +162,7 @@ end
         @test forward!(state, x) == expected
         backward!(state, ones(Float32, size(expected)))
         check_tensor(forward!(state, gpu(x)), expected)
-        @test backward!(state, gpu(ones(Float32, size(expected)))) isa AbstractGPUArray
+        @test backward!(state, gpu(ones(Float32, size(expected)))) isa CuArray
         @test forward!(state, x) == expected
     end
 
@@ -191,5 +182,5 @@ end
                         monitor=Absolute(), keep=1, mutation=0, epochs=1, verbose=false)
         @test state_dict(elite) == state_dict(child)
     end
-    synchronize(GPU_BACKEND)
+    synchronize(RTX_BACKEND)
 end

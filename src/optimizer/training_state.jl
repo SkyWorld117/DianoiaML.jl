@@ -166,9 +166,7 @@ function step!(state::TrainingState; clip_norm=nothing)
     scale = 1 // state.samples
     if clip_norm !== nothing
         0 < clip_norm < Inf || throw(ArgumentError("clip_norm must be positive and finite"))
-        backend = isempty(state.slots) ? nothing : device_of(first(state.slots).gradient)
-        N = foldl((t, slot) -> promote_type(t, eltype(slot.gradient)), state.slots;
-                  init=wide_float(backend))
+        N = foldl((t, slot) -> promote_type(t, eltype(slot.gradient)), state.slots; init=Float64)
         norm2 = sum(slot -> slot.trainable ? sum_map(SquaredMagnitude{N}(), slot.gradient, zero(N)) : zero(N),
                     state.slots; init=zero(N))
         norm = sqrt(norm2) * scale

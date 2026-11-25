@@ -1,17 +1,9 @@
-module DianoiaMLOpenCLExt
+module DianoiaMLCUDACoreExt
 
+using CUDACore: CUDACore, CUDABackend, synchronize
 using DianoiaML
-using KernelAbstractions: supports_float64, synchronize
-using OpenCL: cl, OpenCLBackend, OpenCLKernels
 using PrecompileTools: @setup_workload, @compile_workload
 using Random: Xoshiro
-
-DianoiaML.gpu_precision_available(backend::OpenCLBackend, ::Type{Float16}) =
-    "cl_khr_fp16" in OpenCLKernels.backend_device(backend).extensions
-DianoiaML.gpu_precision_available(backend::OpenCLBackend, ::Type{Float64}) =
-    supports_float64(backend)
-# OpenCL's SPIR-V compiler does not enable the bfloat type.
-DianoiaML.gpu_precision_available(::OpenCLBackend, ::Type{BFloat16}) = false
 
 function convolution_workload(backend, ::Type{T}) where {T}
     model = to_device(backend, Sequential(
@@ -55,18 +47,15 @@ function transformer_workload(backend)
 end
 
 @setup_workload begin
-    devices = [device for platform in cl.platforms() for device in cl.available_devices(platform, :gpu)]
-    if !isempty(devices)
-        device = first(devices)
-        cl.device!(device)
-        backend = OpenCLBackend()
+    # CUDACore 6.4 can persist relocatable device binaries in package images.
+    if pkgversion(CUDACore) >= v"6.4" && CUDACore.functional() && CUDACore.ndevices() > 0
+        backend = CUDABackend()
         @compile_workload begin
             for T in (Float32, Float16, BFloat16, Float64)
-                DianoiaML.gpu_precision_available(backend, T) || continue
                 convolution_workload(backend, T)
             end
             transformer_workload(backend)
-            synchronize(backend)
+            synchronize()
         end
     end
 end

@@ -91,8 +91,7 @@ end
 function gpu_classification(monitor, output, target)
     predicted, expected = map(x -> reshape(x, size(output, 1), :), (output, compatible_target(output, target)))
     errors = similar(output, Int32, (size(predicted, 2),))
-    threshold = wide_float(device_of(output))(monitor.threshold)
-    launch!(classification_gpu!, errors, predicted, expected, threshold)
+    launch!(classification_gpu!, errors, predicted, expected, float(monitor.threshold))
     return sum_map(identity, errors, 0)
 end
 
