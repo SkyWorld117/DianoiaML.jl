@@ -1,5 +1,28 @@
 device_of(::Union{Array,BitArray,AbstractRange}) = nothing
 
+"""Return a KernelAbstractions backend by name after its runtime package is loaded."""
+function gpu_backend(name::Symbol)
+    backend = gpu_backend(Val(name))
+    (KA.functional(backend) === false || iszero(KA.ndevices(backend))) &&
+        throw(ArgumentError("GPU backend :$name has no working device"))
+    return backend
+end
+
+gpu_backend(::Val{name}) where {name} =
+    throw(ArgumentError("GPU backend :$name is unavailable. Load the corresponding runtime package first."))
+
+wide_float(::Nothing) = Float64
+wide_float(backend) = KA.supports_float64(backend) ? Float64 : Float32
+
+gpu_precision_available(backend, ::Type) = true
+gpu_precision_available(backend, ::Type{Float64}) = KA.supports_float64(backend)
+
+function check_gpu_precision(backend, ::Type{T}) where {T}
+    isbitstype(T) || throw(ArgumentError("GPU storage requires an isbits element type"))
+    gpu_precision_available(backend, T) ||
+        throw(ArgumentError("$(typeof(backend)) does not support $T on the selected device"))
+end
+
 function device_of(array::AbstractArray)
     root = parent(array)
     root === array || return device_of(root)
@@ -24,7 +47,7 @@ gpu_array(array) = device_of(array) !== nothing
 same_device(a, b) = device_of(a) === device_of(b)
 
 function device_copy(backend, array::AbstractArray)
-    isbitstype(eltype(array)) || throw(ArgumentError("GPU storage requires an isbits element type"))
+    check_gpu_precision(backend, eltype(array))
     output = KA.allocate(backend, eltype(array), size(array))
     copyto!(output, device_of(array) === backend ? array : Array(array))
     return output

@@ -14,8 +14,9 @@ precision_type(layer) = nothing
 float_input(precision, input) = input
 float_input(::Type{T}, input::Union{Tuple,NamedTuple}) where {T} = map(x -> float_input(T, x), input)
 function float_input(::Type{T}, input::AbstractArray{<:AbstractFloat}) where {T}
-    if gpu_array(input)
-        isbitstype(T) || throw(ArgumentError("GPU storage requires an isbits precision"))
+    backend = device_of(input)
+    if backend !== nothing
+        check_gpu_precision(backend, T)
         return eltype(input) === T ? input : T.(input)
     end
     return input isa Array{T} ? input : Array{T}(input)

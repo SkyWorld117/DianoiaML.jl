@@ -22,6 +22,7 @@ function finite_difference!(objective, array, index; h=1f-3)
 end
 
 @testset "DianoiaML" begin
+    @test_throws ArgumentError gpu_backend(:cuda)
     include("gradients.jl")
     include("training.jl")
     include("models.jl")

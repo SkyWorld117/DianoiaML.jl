@@ -18,7 +18,7 @@ module DianoiaML
     export GAN, GANState, generate, fit_population!
     export Absolute, Classification, oneHot
     export state_dict, load_state!, save_checkpoint, load_checkpoint!
-    export to_device
+    export gpu_backend, to_device
 
     include("device.jl")
     include("tools/precision.jl")

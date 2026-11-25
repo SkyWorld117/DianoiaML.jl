@@ -5,6 +5,8 @@ using DianoiaML
 using PrecompileTools: @setup_workload, @compile_workload
 using Random: Xoshiro
 
+DianoiaML.gpu_backend(::Val{:cuda}) = CUDABackend()
+
 function convolution_workload(backend, ::Type{T}) where {T}
     model = to_device(backend, Sequential(
         Conv2D(1, 2; kernel_size=(3, 3), activation=ReLU(), precision=T, randomization=false),

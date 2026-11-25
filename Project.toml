@@ -14,20 +14,29 @@ PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [weakdeps]
+AMDGPU = "21141c5a-9bdb-4563-92ae-f87d6854732e"
 CUDACore = "bd0ed864-bdfe-4181-a5ed-ce625a5fdea2"
+Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
+oneAPI = "8f75cd03-7ff8-4ecb-9b8f-daf728133b1b"
 
 [extensions]
+DianoiaMLAMDGPUExt = "AMDGPU"
 DianoiaMLCUDACoreExt = "CUDACore"
+DianoiaMLMetalExt = "Metal"
+DianoiaMLoneAPIExt = "oneAPI"
 
 [compat]
+AMDGPU = "2.11"
 AcceleratedKernels = "0.5"
 BFloat16s = "0.6"
 CUDACore = "6"
 HDF5 = "0.17"
 KernelAbstractions = "0.10"
+Metal = "1.12.1"
 NNlib = "0.9.60"
 PrecompileTools = "1"
 julia = "1.13"
+oneAPI = "2.10"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
