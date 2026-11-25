@@ -57,8 +57,14 @@ function forward!(layer::Dense{T}, cache::DenseCache{T,A}, input::AbstractArray{
     end
     z = cache.values
     multiply!(z, layer.weights, reshape(input, size(input, 1), :), A)
-    z .+= layer.bias
-    activate_values!(reshape(cache.output, size(z)), layer.activation, z)
+    output = reshape(cache.output, size(z))
+    if gpu_array(z) && layer.activation isa PointwiseActivation
+        launch!(dense_epilogue_gpu!, output, z, layer.bias, layer.activation,
+                pointwise_arguments(layer.activation, T))
+    else
+        z .+= layer.bias
+        activate_values!(output, layer.activation, z)
+    end
     return cache.output
 end
 

@@ -87,6 +87,13 @@ function column_sum!(output, values, divisor::A) where {A}
     return output
 end
 
+@kernel inbounds=true function dense_epilogue_gpu!(y, z, bias, activation, args)
+    i = @index(Global, Linear)
+    value = eltype(z)(z[i] + bias[mod1(i, length(bias))])
+    z[i] = value
+    y[i] = activate_scalar(activation, value, args)
+end
+
 @kernel inbounds=true function softmax_gpu_kernel!(y, x, ::Type{A}) where {A}
     col = @index(Global, Linear)
     peak = A(-Inf)
@@ -152,9 +159,59 @@ end
 function gpu_norm_forward!(layer, cache, input)
     width = size(input, 1)
     x, y, z = map(a -> reshape(a, width, :), (input, cache.output, cache.normalized))
-    launch!(layer_norm_gpu!, y, x, z, cache.inverse_std, layer.scale, layer.bias, layer.epsilon;
-            ndrange=size(x, 2))
+    columns = size(x, 2)
+    if width >= NORM_GROUP
+        launch!(layer_norm_rows_gpu!, y, x, z, cache.inverse_std, layer.scale, layer.bias, layer.epsilon;
+                ndrange=NORM_GROUP * columns, groupsize=NORM_GROUP)
+    else
+        launch!(layer_norm_gpu!, y, x, z, cache.inverse_std, layer.scale, layer.bias, layer.epsilon;
+                ndrange=columns)
+    end
     return cache.output
+end
+
+const NORM_GROUP = 64
+
+@kernel inbounds=true function layer_norm_rows_gpu!(y, x, z, inverse_std, γ, β, ε::A) where {A}
+    lane = @index(Local, Linear)
+    col = @index(Group, Linear)
+    scratch = @localmem A (NORM_GROUP,)
+    width = size(x, 1)
+    total = zero(A)
+    for i in lane:NORM_GROUP:width
+        total += A(x[i, col])
+    end
+    scratch[lane] = total
+    @synchronize
+    for offset in (32, 16, 8, 4, 2, 1)
+        if lane <= offset
+            scratch[lane] += scratch[lane + offset]
+        end
+        @synchronize
+    end
+    μ = scratch[1] / A(width)
+    @synchronize
+    squared = zero(A)
+    for i in lane:NORM_GROUP:width
+        squared += abs2(A(x[i, col]) - μ)
+    end
+    scratch[lane] = squared
+    @synchronize
+    for offset in (32, 16, 8, 4, 2, 1)
+        if lane <= offset
+            scratch[lane] += scratch[lane + offset]
+        end
+        @synchronize
+    end
+    σ⁻¹ = inv(sqrt(scratch[1] / A(width) + ε))
+    if lane == 1
+        inverse_std[col] = σ⁻¹
+    end
+    for i in lane:NORM_GROUP:width
+        normalized = (A(x[i, col]) - μ) * σ⁻¹
+        z[i, col] = normalized
+        y[i, col] = normalized * A(γ[i]) + A(β[i])
+    end
 end
 
 @kernel inbounds=true function layer_norm_input_gpu!(∇x, ∇y, z, inverse_std, γ)
@@ -187,13 +244,84 @@ end
     ∇β[i] = bias / batch
 end
 
+@kernel inbounds=true function layer_norm_rows_input_gpu!(∇x, ∇y, z, inverse_std, γ, ::Type{A}) where {A}
+    lane = @index(Local, Linear)
+    col = @index(Group, Linear)
+    sums = @localmem A (NORM_GROUP,)
+    projections = @localmem A (NORM_GROUP,)
+    width = size(z, 1)
+    total, projection = zero(A), zero(A)
+    for i in lane:NORM_GROUP:width
+        h = A(∇y[i, col]) * A(γ[i])
+        total += h
+        projection += h * z[i, col]
+    end
+    sums[lane], projections[lane] = total, projection
+    @synchronize
+    for offset in (32, 16, 8, 4, 2, 1)
+        if lane <= offset
+            sums[lane] += sums[lane + offset]
+            projections[lane] += projections[lane + offset]
+        end
+        @synchronize
+    end
+    μ, mean_projection = sums[1] / A(width), projections[1] / A(width)
+    σ⁻¹ = inverse_std[col]
+    for i in lane:NORM_GROUP:width
+        h = A(∇y[i, col]) * A(γ[i])
+        ∇x[i, col] = σ⁻¹ * (h - μ - z[i, col] * mean_projection)
+    end
+end
+
+const NORM_PARAMETER_GROUP = (8, 16)
+
+@kernel inbounds=true function layer_norm_columns_gpu!(∇γ, ∇β, ∇y, z, batch::A) where {A}
+    i, _ = @index(Global, NTuple)
+    feature, lane = @index(Local, NTuple)
+    scales = @localmem A NORM_PARAMETER_GROUP
+    biases = @localmem A NORM_PARAMETER_GROUP
+    scale, bias = zero(A), zero(A)
+    if i <= size(z, 1)
+        for col in lane:NORM_PARAMETER_GROUP[2]:size(z, 2)
+            g = A(∇y[i, col])
+            scale += g * z[i, col]
+            bias += g
+        end
+    end
+    scales[feature, lane], biases[feature, lane] = scale, bias
+    @synchronize
+    for offset in (8, 4, 2, 1)
+        if lane <= offset
+            scales[feature, lane] += scales[feature, lane + offset]
+            biases[feature, lane] += biases[feature, lane + offset]
+        end
+        @synchronize
+    end
+    if lane == 1 && i <= size(z, 1)
+        ∇γ[i] = scales[feature, 1] / batch
+        ∇β[i] = biases[feature, 1] / batch
+    end
+end
+
 function gpu_norm_backward!(layer, cache, input, upstream, compute_parameters)
     width = size(input, 1)
     ∇x, ∇y, z = map(a -> reshape(a, width, :), (cache.input_gradient, upstream, cache.normalized))
-    launch!(layer_norm_input_gpu!, ∇x, ∇y, z, cache.inverse_std, layer.scale; ndrange=size(z, 2))
+    columns = size(z, 2)
+    if width >= NORM_GROUP
+        launch!(layer_norm_rows_input_gpu!, ∇x, ∇y, z, cache.inverse_std, layer.scale, eltype(z);
+                ndrange=NORM_GROUP * columns, groupsize=NORM_GROUP)
+    else
+        launch!(layer_norm_input_gpu!, ∇x, ∇y, z, cache.inverse_std, layer.scale; ndrange=columns)
+    end
     if compute_parameters
         batch = eltype(z)(size(input, ndims(input)))
-        launch!(layer_norm_parameters_gpu!, cache.scale_gradient, cache.bias_gradient, ∇y, z, batch)
+        if columns >= 128
+            padded = cld(width, NORM_PARAMETER_GROUP[1]) * NORM_PARAMETER_GROUP[1]
+            launch!(layer_norm_columns_gpu!, cache.scale_gradient, cache.bias_gradient, ∇y, z, batch;
+                    ndrange=(padded, NORM_PARAMETER_GROUP[2]), groupsize=NORM_PARAMETER_GROUP)
+        else
+            launch!(layer_norm_parameters_gpu!, cache.scale_gradient, cache.bias_gradient, ∇y, z, batch)
+        end
     end
     return cache.input_gradient
 end

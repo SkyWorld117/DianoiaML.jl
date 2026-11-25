@@ -38,6 +38,9 @@ mutable struct TrainingState{M,E}
     epochs::Int
     batch::Int
     pending::Bool
+    loss_gradient::Union{Nothing,AbstractArray}
+    revision::UInt
+    adamw_groups::Union{Nothing,Vector{AdamWGroup}}
 end
 
 function TrainingState(model::AbstractLayer, optimizer::AbstractOptimizer;
@@ -69,8 +72,9 @@ function TrainingState(model::AbstractLayer, optimizer::AbstractOptimizer;
             push!(aliases, (path, i))
         end
     end
+    groups = adamw_groups(optimizer, slots)
     return TrainingState(model, run, optimizer, slots, names, index, sources, aliases, UInt64(seed),
-                         UInt64(0), 0, 0, 0, 0, false)
+                         UInt64(0), 0, 0, 0, 0, false, nothing, UInt(0), groups)
 end
 
 function set_group!(state::TrainingState, group; lr=nothing, trainable::Union{Bool,Nothing}=nothing)
@@ -83,6 +87,7 @@ function set_group!(state::TrainingState, group; lr=nothing, trainable::Union{Bo
         lr === nothing || (slot.lr = float(lr))
         trainable === nothing || (slot.trainable = trainable)
     end
+    state.revision += 1
     return state
 end
 
@@ -131,8 +136,14 @@ end
 function backpropagate!(state, upstream, loss; accumulate)
     state.pending || throw(ArgumentError("call forward! before backward!"))
     output = state.run.output
-    delta = loss === nothing ? upstream :
-            loss_gradient!(similar(output), loss, output, batch_on(device_of(output), upstream))
+    delta = upstream
+    if loss !== nothing
+        scratch = state.loss_gradient
+        if !matching_buffer(scratch, output)
+            scratch = state.loss_gradient = similar(output)
+        end
+        delta = loss_gradient!(scratch, loss, output, batch_on(device_of(output), upstream))
+    end
     check_cotangent(output, delta)
     state.pending = false
     derivative = differentiate!(state.run, complete_cotangent(output, delta); compute_parameters=accumulate)
@@ -174,6 +185,13 @@ function step!(state::TrainingState; clip_norm=nothing)
         norm = sqrt(norm2) * scale
         norm > clip_norm && (scale *= clip_norm / norm)
     end
+    if state.optimizer isa AdamW && state.adamw_groups !== nothing
+        for group in state.adamw_groups
+            adamw_group_step!(group, state.optimizer, scale)
+        end
+        state.samples = state.microbatches = 0
+        return state
+    end
     for slot in state.slots
         slot.trainable || continue
         slot.gradient .*= eltype(slot.gradient)(scale)
@@ -187,13 +205,23 @@ end
 """Train from an iterable of (inputs, targets), or a factory that creates one."""
 function fit!(state::TrainingState, data; loss::AbstractLoss, monitor=nothing, epochs::Int=1,
               accumulate::Int=1, clip_norm=nothing, verbose::Bool=true)
+    batch!(input, target) = train_batch!(state, input, target, loss)
+    return fit_batches!(batch!, state, data; monitor, epochs, accumulate, clip_norm, verbose)
+end
+
+function train_batch!(state, input, target, loss)
+    prediction = forward!(state, input)
+    backward!(state, target; loss)
+    return prediction
+end
+
+function fit_batches!(batch!, state, data; monitor, epochs, accumulate, clip_norm, verbose)
     epochs >= 0 || throw(ArgumentError("epochs must be nonnegative"))
     accumulate > 0 || throw(ArgumentError("accumulate must be positive"))
     for _ in 1:epochs
         count, score = 0, 0.0
         for (input, target) in (applicable(data) ? data() : data)
-            prediction = forward!(state, input)
-            backward!(state, target; loss)
+            prediction = batch!(input, target)
             count += state.batch
             monitor === nothing || (score += monitor(prediction, target))
             state.microbatches < accumulate || step!(state; clip_norm)

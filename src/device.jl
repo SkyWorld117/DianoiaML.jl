@@ -46,6 +46,10 @@ end
 gpu_array(array) = device_of(array) !== nothing
 same_device(a, b) = device_of(a) === device_of(b)
 
+matching_buffer(::Nothing, value) = false
+matching_buffer(buffer::AbstractArray, value::AbstractArray) =
+    size(buffer) == size(value) && eltype(buffer) === eltype(value) && same_device(buffer, value)
+
 function device_copy(backend, array::AbstractArray)
     check_gpu_precision(backend, eltype(array))
     output = KA.allocate(backend, eltype(array), size(array))

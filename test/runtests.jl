@@ -28,6 +28,7 @@ end
     include("models.jl")
     include("composition.jl")
     include("training_state.jl")
+    include("execution_plan.jl")
     include("precision.jl")
     include("transformer.jl")
 end

@@ -164,9 +164,11 @@ end
 function restore_training_state!(state::TrainingState, saved, restored)
     load_state!(state.model, saved)
     for field in (:run, :optimizer, :slots, :names, :index, :sources, :aliases,
-                  :seed, :forwards, :samples, :microbatches, :epochs, :batch, :pending)
+                  :seed, :forwards, :samples, :microbatches, :epochs, :batch, :pending,
+                  :loss_gradient, :adamw_groups)
         setfield!(state, field, getfield(restored, field))
     end
+    state.revision += 1
     return state
 end
 

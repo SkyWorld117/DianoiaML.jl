@@ -78,11 +78,13 @@ end
 struct GraphCache
     values::Vector{Tensor}
     gradients::Vector{Union{Nothing,Tensor}}
+    scratch::Vector{Union{Nothing,AbstractArray}}
 end
 
 function layer_cache(graph::Graph)
     n = length(graph.inputs) + length(graph.nodes)
-    return GraphCache(Vector{Tensor}(undef, n), fill!(Vector{Union{Nothing,Tensor}}(undef, n), nothing))
+    return GraphCache(Vector{Tensor}(undef, n), fill!(Vector{Union{Nothing,Tensor}}(undef, n), nothing),
+                      fill!(Vector{Union{Nothing,AbstractArray}}(undef, n), nothing))
 end
 
 function graph_arguments(graph, data)
@@ -125,14 +127,26 @@ end
 zero_cotangent(value::AbstractArray) = zero(value)
 zero_cotangent(value::Union{Tuple,NamedTuple}) = map(zero_cotangent, value)
 
+function graph_cotangent!(cache, i, value, offset)
+    current = cache.gradients[i]
+    if i > offset && current === nothing && value isa AbstractArray
+        buffer = cache.scratch[i]
+        matching_buffer(buffer, value) || (buffer = cache.scratch[i] = similar(value))
+        cache.gradients[i] = copyto!(buffer, value)
+    else
+        cache.gradients[i] = merge_cotangents(current, value)
+    end
+    return
+end
+
 function backward!(graph::Graph, run::Execution, input, upstream; compute_parameters)
     gradients = run.cache.gradients
     fill!(gradients, nothing)
+    offset = length(graph.inputs)
     selected = length(graph.outputs) == 1 ? (upstream,) : upstream
     for (i, delta) in zip(graph.outputs, selected)
-        gradients[i] = copy_cotangent(cotangent_as(run.cache.values[i], delta))
+        graph_cotangent!(run.cache, i, cotangent_as(run.cache.values[i], delta), offset)
     end
-    offset = length(graph.inputs)
     for i in length(graph.nodes):-1:1
         delta = gradients[offset + i]
         delta === nothing && (delta = zero_cotangent(run.cache.values[offset + i]))
@@ -142,7 +156,7 @@ function backward!(graph::Graph, run::Execution, input, upstream; compute_parame
         parts isa Union{Tuple,NamedTuple} && length(parts) == length(parents) ||
             throw(DimensionMismatch("a multi-input layer must return one cotangent per input"))
         for (p, gradient) in zip(parents, parts)
-            gradients[p] = merge_cotangents(gradients[p], gradient)
+            graph_cotangent!(run.cache, p, gradient, offset)
         end
     end
     input isa NamedTuple && return NamedTuple{keys(input)}(map(name -> gradients[findfirst(==(name), graph.inputs)], keys(input)))

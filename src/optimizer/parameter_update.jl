@@ -123,8 +123,7 @@ end
 weight_scale(::Union{Adam,AdaBelief}, α, ::Type{A}) where {A} = one(A)
 weight_scale(optimizer::AdamW, α, ::Type{A}) where {A} = one(A) - A(α * optimizer.weight_decay)
 
-function update_parameters!(optimizer::Union{Adam,AdamW,AdaBelief}, w, ∇w, first, second, α, t)
-    A = eltype(∇w)
+function adaptive_coefficients(optimizer, ::Type{A}, α, t) where {A}
     P = promote_type(A, typeof(optimizer.beta1))
     β₁, β₂ = P(optimizer.beta1), P(optimizer.beta2)
     decay₁, decay₂ = A(β₁), A(β₂)
@@ -133,11 +132,16 @@ function update_parameters!(optimizer::Union{Adam,AdamW,AdaBelief}, w, ∇w, fir
     correction = A(inv(1 - β₂^t))
     ε = A(optimizer.epsilon)
     scale = weight_scale(optimizer, α, A)
+    return α̂, ε, scale, decay₁, decay₂, gain₁, gain₂, correction
+end
+
+function update_parameters!(optimizer::Union{Adam,AdamW,AdaBelief}, w, ∇w, first, second, α, t)
+    coefficients = adaptive_coefficients(optimizer, eltype(∇w), α, t)
     belief = optimizer isa AdaBelief
     if gpu_array(w)
-        return launch!(adaptive_optimizer_gpu!, w, ∇w, first, second,
-                       α̂, ε, scale, decay₁, decay₂, gain₁, gain₂, correction, belief)
+        return launch!(adaptive_optimizer_gpu!, w, ∇w, first, second, coefficients..., belief)
     end
+    α̂, ε, scale, decay₁, decay₂, gain₁, gain₂, correction = coefficients
     @inbounds @simd for i in eachindex(w, ∇w, first, second)
         g = ∇w[i]
         m = decay₁ * first[i] + gain₁ * g
@@ -148,4 +152,10 @@ function update_parameters!(optimizer::Union{Adam,AdamW,AdaBelief}, w, ∇w, fir
         w[i] = scale * w[i] - α̂ * m / (sqrt(v̂) + ε)
     end
     return
+end
+
+struct AdamWGroup{S,B}
+    slots::S
+    buffers::B
+    width::Int
 end

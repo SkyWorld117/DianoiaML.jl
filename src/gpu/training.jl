@@ -122,6 +122,78 @@ end
     w[i] = scale * w[i] - α̂ * m / (sqrt(v * correction) + ε)
 end
 
+const ADAMW_GROUP_SIZE = 8
+const ADAMW_SMALL_PARAMETER = 2048
+
+function adamw_groups(optimizer, slots)
+    optimizer isa AdamW && !isempty(slots) || return nothing
+    backend = device_of(first(slots).value)
+    backend !== nothing && all(slot -> device_of(slot.value) === backend, slots) || return nothing
+
+    # Separately registered views of the same storage must keep their
+    # sequential update order. Tied arrays already share a single slot.
+    allocations = Set{UInt}()
+    for slot in slots
+        ids = Base.dataids(slot.value)
+        any(in(allocations), ids) && return nothing
+        union!(allocations, ids)
+    end
+
+    groups = AdamWGroup[]
+    small = Dict{Type,Vector{ParameterState}}()
+    for slot in slots
+        if length(slot.value) <= ADAMW_SMALL_PARAMETER
+            key = Tuple{typeof(vec(slot.value)),typeof(vec(slot.gradient))}
+            push!(get!(() -> ParameterState[], small, key), slot)
+        else
+            push!(groups, adamw_group((slot,)))
+        end
+    end
+    for same_type in values(small), start in 1:ADAMW_GROUP_SIZE:length(same_type)
+        stop = min(start + ADAMW_GROUP_SIZE - 1, length(same_type))
+        push!(groups, adamw_group(Tuple(same_type[start:stop])))
+    end
+    return groups
+end
+
+function adamw_group(slots)
+    buffers = map(slot -> (vec(slot.value), vec(slot.gradient), vec(slot.first), vec(slot.second)), slots)
+    return AdamWGroup(slots, buffers, maximum(buffer -> length(first(buffer)), buffers))
+end
+
+function adamw_group_step!(group::AdamWGroup, optimizer, mean_scale)
+    settings = map(group.slots) do slot
+        A = eltype(slot.gradient)
+        slot.step += slot.trainable
+        coefficients = adaptive_coefficients(optimizer, A, slot.lr, max(1, slot.step))
+        return (slot.trainable, A(mean_scale), coefficients)
+    end
+    if group.width > 0
+        backend = device_of(first(first(group.buffers)))
+        tensors = length(group.buffers)
+        lanes = tensors == 1 ? 256 : 128
+        adamw_group_gpu!(backend, (lanes, 1))(group.buffers, settings; ndrange=(group.width, tensors))
+    end
+    return
+end
+
+@kernel inbounds=true function adamw_group_gpu!(buffers, settings)
+    i, tensor = @index(Global, NTuple)
+    w, ∇w, first, second = buffers[tensor]
+    if i <= length(w)
+        trainable, mean_scale, coefficients = settings[tensor]
+        if trainable
+            α̂, ε, scale, decay₁, decay₂, gain₁, gain₂, correction = coefficients
+            g = mean_scale * ∇w[i]
+            m = decay₁ * first[i] + gain₁ * g
+            v = decay₂ * second[i] + gain₂ * g^2
+            first[i], second[i] = m, v
+            w[i] = scale * w[i] - α̂ * m / (sqrt(v * correction) + ε)
+        end
+        ∇w[i] = zero(eltype(∇w))
+    end
+end
+
 @kernel inbounds=true function recombine_gpu!(dest, a, b, probability::A, strength, seed) where {A}
     i = @index(Global, Linear)
     start = 3 * i
